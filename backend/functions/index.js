@@ -5,6 +5,7 @@ const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 const InsightProcessor = require('./processor');
+const YoutubeProcessor = require('./youtube_processor');
 
 require('dotenv').config();
 admin.initializeApp();
@@ -25,6 +26,7 @@ const GEMINI_KEY = process.env.GEMINI_API_KEY || "";
 console.log("[Backend] Gemini Key length:", GEMINI_KEY.length);
 
 const processor = new InsightProcessor();
+const ytProcessor = new YoutubeProcessor();
 
 // Helper for dual routes (with and without /api prefix)
 const registerRoute = (method, path, handler) => {
@@ -34,12 +36,37 @@ const registerRoute = (method, path, handler) => {
     }
 };
 
+registerRoute('post', '/api/youtube/analyze', async (req, res) => {
+    const { videoUrl } = req.body;
+    try {
+        console.log(`[Youtube] Analizando: ${videoUrl}`);
+        let videoId = "";
+        if (videoUrl.includes('v=')) videoId = videoUrl.split('v=')[1]?.split('&')[0];
+        else if (videoUrl.includes('youtu.be/')) videoId = videoUrl.split('youtu.be/')[1]?.split('?')[0];
+
+        if (!videoId) throw new Error("URL de YouTube no válida. Use formato https://www.youtube.com/watch?v=XXXX");
+
+        const comments = await ytProcessor.getComments(videoId, process.env.GEMINI_API_KEY || GEMINI_KEY);
+        const analysis = await ytProcessor.analyzeSentimentInBulk(comments, process.env.GEMINI_API_KEY || GEMINI_KEY);
+
+        res.json({
+            status: "success",
+            videoId,
+            results: analysis,
+            summary: `Analizados ${analysis.length} comentarios con Google NL API.`
+        });
+    } catch (e) {
+        console.error("[Youtube Route Error]", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 registerRoute('post', '/api/scout', async (req, res) => {
     const { url, platform } = req.body;
 
     // MODO MOCK para no gastar créditos de Apify
     if (url.includes('test-mode') || url.includes('mock-data')) {
-        const datasetId = `mock-${Date.now()}`;
+        const datasetId = `mock - ${Date.now()}`;
         return res.json({ status: 'processing', datasetId, isMock: true });
     }
 
@@ -314,6 +341,13 @@ app.use((req, res) => {
     console.warn(`[404] No route found for ${req.method} ${req.path}`);
     res.status(404).json({ error: `Ruta no encontrada: ${req.method} ${req.path}` });
 });
+
+if (process.env.NODE_ENV !== 'production' && require.main === module) {
+    const PORT = 3001;
+    app.listen(PORT, () => {
+        console.log(`[Backend] Servidor local corriendo en http://localhost:${PORT}`);
+    });
+}
 
 exports.apiServer = onRequest({
     region: 'us-central1',

@@ -12,7 +12,8 @@ import {
   ThumbsDown,
   Minus,
   ChevronDown,
-  Home
+  Home,
+  Youtube
 } from 'lucide-react';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -420,6 +421,601 @@ const CyberWordCloud = ({ words }) => {
   );
 };
 
+const DashboardView = ({ history, alerts, report }) => (
+  <div className="space-y-12 pb-20">
+    <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <MetricCard title="Menciones" value={history.length > 0 ? `${(history.reduce((acc, h) => acc + (h.commentsCount || 0), 0) / 100).toFixed(1)}k` : "1.2k"} change="12" icon={MessageSquare} />
+      <MetricCard title="Sentiment Health" value={history.length > 0 ? `${Math.round(history.reduce((acc, h) => acc + (h.sentiment?.positive || 0), 0) / history.length)}%` : "78%"} change="5" icon={BarChart3} />
+      <MetricCard title="Riesgos Activos" value={alerts.length || "2"} change={alerts.length > 0 ? "-2" : "0"} icon={Settings} />
+    </section>
+
+    {report && (
+      <section className="pwa-card p-10 bg-gradient-to-br from-white/[0.03] to-transparent border-white/10 relative overflow-hidden group">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-accent-lemon/5 blur-[100px] rounded-full -mr-20 -mt-20 group-hover:bg-accent-lemon/10 transition-all duration-700" />
+        <div className="relative z-10 space-y-8">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="px-4 py-1.5 bg-accent-lemon text-black font-black text-[10px] uppercase italic rounded-full shadow-[0_0_20px_rgba(152,255,188,0.4)]">Executive Report</div>
+              <h2 className="text-2xl font-black italic uppercase tracking-tighter">Strategic Management Briefing</h2>
+            </div>
+            <span className="text-[10px] font-black uppercase text-white/20 tracking-widest">Semana 08 / 2026</span>
+          </div>
+
+          <p className="text-lg font-bold text-white/90 italic leading-relaxed max-w-2xl">"{report.executiveBrief}"</p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {report.brandPerformance.map((bp, i) => (
+              <div key={i} className="space-y-1">
+                <p className="text-[10px] font-black uppercase text-white/30">{bp.brand}</p>
+                <p className={`font-black uppercase italic text-sm ${bp.status === 'Crisis' ? 'text-accent-pink' : 'text-accent-lemon'}`}>{bp.status}</p>
+                <p className="text-[11px] font-medium text-white/60 leading-tight">{bp.keyFinding}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="pt-6 border-t border-white/5 flex flex-col md:flex-row gap-12">
+            <div className="flex-1 space-y-3">
+              <h4 className="text-[10px] font-black uppercase tracking-widest text-accent-pink">Top Strategic Risk</h4>
+              <p className="text-xs font-bold text-white/80">{report.topStrategicRisk}</p>
+            </div>
+            <div className="flex-1 space-y-3">
+              <h4 className="text-[10px] font-black uppercase tracking-widest text-accent-lemon">Action Plan</h4>
+              <div className="flex flex-wrap gap-2">
+                {report.nextSteps.map((step, i) => (
+                  <span key={i} className="text-[9px] font-black uppercase px-3 py-1 bg-white/5 border border-white/10 rounded-full">{step}</span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    )}
+
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <section className="lg:col-span-4 space-y-6">
+        <ShareOfVoiceChart
+          data={[
+            { name: 'BEMBOS', count: 450, color: '#98FFBC' },
+            { name: 'PAPA JOHNS', count: 280, color: '#FF53BA' },
+            { name: 'DUNKIN', count: 180, color: '#ff7700' },
+            { name: 'POPEYES', count: 120, color: '#ffffff' }
+          ]}
+        />
+      </section>
+
+      <section className="lg:col-span-4 pwa-card p-8 bg-white/[0.02] border-white/5 space-y-6">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-black uppercase italic tracking-widest text-white/40">Competitive Pulse</h3>
+          <div className="flex items-center gap-2">
+            <div className="w-1.5 h-1.5 bg-accent-lemon rounded-full animate-pulse" />
+            <span className="text-[9px] font-black uppercase text-accent-lemon tracking-widest">NGR Leading</span>
+          </div>
+        </div>
+        <div className="space-y-5 pt-2">
+          {[
+            { name: 'NGR Portfolio', score: 82, color: 'accent-lemon' },
+            { name: "McDonald's Peru", score: 65, color: 'white/10' },
+            { name: "Burger King", score: 58, color: 'white/10' },
+            { name: "KFC Peru", score: 71, color: 'white/10' }
+          ].map(c => (
+            <div key={c.name} className="space-y-2">
+              <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
+                <span className="opacity-40">{c.name}</span>
+                <span className={c.score > 70 ? 'text-accent-lemon' : 'opacity-40'}>{c.score} Sent. pts</span>
+              </div>
+              <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
+                <div className={`h-full transition-all duration-1000 ${c.score > 75 ? 'bg-accent-lemon shadow-[0_0_8px_rgba(152,255,188,0.4)]' : 'bg-white/20'}`} style={{ width: `${c.score}%` }} />
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="text-[9px] font-medium text-white/20 italic pt-2">Benchmarking automático basado en clusters semánticos del sector QSR.</p>
+      </section>
+
+      <section className="lg:col-span-4 space-y-6">
+        <div className="flex justify-between items-center">
+          <h3 className="text-xs font-black italic uppercase tracking-widest text-white/40">Ambassador Hub</h3>
+          <span className="text-[9px] font-black uppercase text-accent-lemon">Top Reach Fans</span>
+        </div>
+        <div className="grid grid-cols-1 gap-4">
+          {[
+            { user: '@foodie_lima', reach: '52k', brand: 'Bembos', avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=150&h=150' },
+            { user: '@travel_peru', reach: '128k', brand: 'Popeyes', avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&q=80&w=150&h=150' },
+            { user: '@lima_eats', reach: '25k', brand: 'Bembos', avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=150&h=150' }
+          ].map((fan, i) => (
+            <div key={i} className="pwa-card p-4 bg-white/[0.02] border-white/5 flex items-center gap-4 hover:bg-white/[0.04] transition-all cursor-pointer">
+              <img src={fan.avatar} className="w-10 h-10 rounded-xl object-cover border border-white/10" alt={fan.user} />
+              <div className="flex-1">
+                <p className="font-black italic uppercase text-[10px]">{fan.user}</p>
+                <p className="text-[8px] font-black uppercase text-white/30 tracking-widest">{fan.brand}</p>
+              </div>
+              <span className="text-[9px] font-black text-accent-lemon uppercase">{fan.reach}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+
+    <section className="w-full">
+      <CyberWordCloud
+        words={
+          history[0]?.wordCloud || [
+            { word: "SABOR", weight: 95 },
+            { word: "PRECIO", weight: 80 },
+            { word: "DEMORA", weight: 60 },
+            { word: "DELIVERY", weight: 45 },
+            { word: "PROMOS", weight: 90 },
+            { word: "FRIO", weight: 30 },
+            { word: "EXCELENTE", weight: 85 },
+            { word: "RÁPIDO", weight: 70 },
+            { word: "MALA ATENCIÓN", weight: 50 },
+            { word: "ME ENCANTA", weight: 100 },
+            { word: "CRUJIENTE", weight: 75 },
+            { word: "CARO", weight: 40 },
+            { word: "APP", weight: 65 }
+          ]
+        }
+      />
+    </section>
+  </div>
+);
+
+const YouTubeSection = () => {
+  const [videoUrl, setVideoUrl] = useState('');
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [results, setResults] = useState(null);
+  const [error, setError] = useState(null);
+
+  const handleAnalyze = async () => {
+    setIsAnalyzing(true);
+    setResults(null);
+    setError(null);
+    try {
+      const BASE_URL = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
+      const res = await axios.post(`${BASE_URL}/api/youtube/analyze`, { videoUrl });
+      setResults(res.data);
+    } catch (err) {
+      setError(err.response?.data?.error || err.message);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  return (
+    <section className="space-y-8 pb-20">
+      <header className="flex flex-col gap-4">
+        <div>
+          <p className="text-xs font-bold text-white/20 uppercase tracking-widest mb-2">Google Sentimining Solution</p>
+          <h1 className="pwa-title leading-tight">YouTube <br /><span className="text-accent-blue font-black tracking-tighter uppercase italic">NLP Analysis</span></h1>
+        </div>
+        <div className="flex gap-4 max-w-2xl mt-4">
+          <input
+            className="pwa-card bg-white/5 border-white/10 px-6 py-4 text-xs flex-1 outline-none focus:border-accent-blue transition-all"
+            placeholder="https://www.youtube.com/watch?v=..."
+            value={videoUrl}
+            onChange={(e) => setVideoUrl(e.target.value)}
+          />
+          <button
+            onClick={handleAnalyze}
+            disabled={isAnalyzing || !videoUrl}
+            className="pwa-btn px-8 bg-accent-blue border-accent-blue/50 text-white hover:shadow-[0_0_30px_rgba(0,112,243,0.4)] disabled:opacity-50"
+          >
+            {isAnalyzing ? 'PROCESANDO...' : 'ANALIZAR'}
+          </button>
+        </div>
+      </header>
+
+      {error && (
+        <div className="pwa-card p-4 border-accent-pink/50 bg-accent-pink/10 text-accent-pink text-[10px] font-black italic uppercase tracking-widest">
+          ERROR DETECTADO: {error}
+        </div>
+      )}
+
+      {results && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+          <div className="lg:col-span-8 pwa-card p-10 bg-gradient-to-br from-accent-blue/10 to-transparent border-accent-blue/20">
+            <div className="flex items-center justify-between mb-8">
+              <h3 className="text-sm font-black italic uppercase tracking-tighter">Sentimining Insights</h3>
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-accent-lemon rounded-full shadow-[0_0_10px_#98FFBC]" />
+                <span className="text-[10px] font-black uppercase text-accent-lemon tracking-widest">{results.summary}</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {results.results.map((res, i) => (
+                <div key={i} className="flex flex-col gap-2 p-4 bg-white/[0.03] rounded-2xl border border-white/5 group hover:bg-white/[0.05] transition-all">
+                  <p className="text-[11px] text-white/50 italic leading-relaxed line-clamp-3">"{res.text}"</p>
+                  <div className="flex items-center gap-4 mt-2">
+                    <div className="flex-1 h-1 bg-white/5 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-1000 ${res.score > 0.3 ? 'bg-accent-lemon' : res.score < -0.3 ? 'bg-accent-pink' : 'bg-white/40'}`}
+                        style={{ width: `${50 + (res.score * 50)}%` }}
+                      ></div>
+                    </div>
+                    <span className="text-[9px] font-black uppercase text-white/40 group-hover:text-white transition-colors">
+                      {res.score.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="lg:col-span-4 space-y-8">
+            <div className="pwa-card p-8 bg-white/[0.01] border-white/5">
+              <h4 className="text-[10px] font-black uppercase tracking-widest text-white/30 mb-6 italic">GCP Flow Status</h4>
+              <div className="space-y-6">
+                {[
+                  { step: "01", label: "YouTube Captions", status: "Processed", color: "text-accent-lemon" },
+                  { step: "02", label: "NL API Sentiment", status: "Active", color: "text-accent-blue" },
+                  { step: "03", label: "Entity extraction", status: "Enabled", color: "text-accent-lemon" },
+                  { step: "04", label: "BigQuery Sync", status: "Pending", color: "text-white/20" }
+                ].map((s, i) => (
+                  <div key={i} className="flex items-center gap-4">
+                    <span className="text-2xl font-black italic opacity-5">{s.step}</span>
+                    <div className="flex-1">
+                      <p className="text-[11px] font-black uppercase tracking-tighter">{s.label}</p>
+                      <p className={`text-[9px] font-bold uppercase ${s.color}`}>{s.status}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+};
+
+const SettingsView = ({ brandsStatus }) => (
+  <section className="space-y-12 pb-20">
+    <h1 className="pwa-title">Panel de <br /><span className="text-white/40">Configuración</span></h1>
+
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      {/* Sentiment Alerts */}
+      <div className="pwa-card p-8 bg-white/[0.02] border-white/5 space-y-6">
+        <div className="flex items-center gap-3 text-accent-orange">
+          <Settings size={20} />
+          <h3 className="text-xs font-black uppercase italic tracking-widest">Alertas de Sentimiento</h3>
+        </div>
+        <p className="text-xs text-white/40 leading-relaxed font-medium italic">
+          Define los umbrales críticos para disparar alertas automáticas al Directorio y Slack.
+        </p>
+
+        <div className="space-y-6 pt-4">
+          <div className="space-y-2">
+            <div className="flex justify-between text-[10px] uppercase font-black tracking-widest opacity-60">
+              <span>Umbral de Crisis</span>
+              <span className="text-accent-pink">30% Negativo</span>
+            </div>
+            <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+              <div className="h-full bg-accent-pink w-[30%] shadow-[0_0_10px_rgba(255,83,186,0.3)]" />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex justify-between text-[10px] uppercase font-black tracking-widest opacity-60">
+              <span>Salud de Marca (Mínimo)</span>
+              <span className="text-accent-lemon">70% Positivo</span>
+            </div>
+            <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+              <div className="h-full bg-accent-lemon w-[70%] shadow-[0_0_10px_rgba(152,255,188,0.3)]" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Intelligence Matrix Table */}
+      <div className="pwa-card p-8 bg-white/[0.02] border-white/5 space-y-6 lg:col-span-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3 text-accent-lemon">
+            <BarChart3 size={20} />
+            <h3 className="text-xs font-black uppercase italic tracking-widest">Matriz de Inteligencia Estratégica</h3>
+          </div>
+          <div className="flex gap-4">
+            <button
+              onClick={async () => {
+                const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
+                if (!confirm("Esto generará datos sintéticos realistas para los últimos 7 días. ¿Continuar?")) return;
+                try {
+                  await axios.post(`${API_BASE}/api/admin/seed-history`);
+                  alert("Cold Start completado. El historial de 7 días ya está disponible.");
+                  window.location.reload();
+                } catch (e) {
+                  alert("Error al popular historial.");
+                }
+              }}
+              className="px-6 py-2 bg-white/5 text-white/60 border border-white/10 text-[10px] font-black uppercase italic rounded-full hover:bg-white/10 transition-all"
+            >
+              Cold Start: Poblar 7 Días
+            </button>
+            <button
+              onClick={async () => {
+                const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
+                alert("Iniciando escaneo masivo de las 10 marcas (Propias + Competencia). Esto tomará un par de minutos en 2do plano.");
+                await axios.post(`${API_BASE}/api/admin/scout-all`);
+              }}
+              className="px-6 py-2 bg-accent-lemon text-black font-black text-[10px] uppercase italic rounded-full hover:scale-105 transition-all shadow-[0_0_20px_rgba(152,255,188,0.2)]"
+            >
+              Ejecutar Escaneo Masivo
+            </button>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto overflow-y-auto max-h-[400px] no-scrollbar">
+          <table className="w-full text-left border-collapse">
+            <thead className="sticky top-0 bg-[#0a0a0a] z-10 shadow-sm">
+              <tr className="border-b border-white/5">
+                <th className="py-4 text-[9px] font-black uppercase tracking-widest text-white/20">Marca / Entidad</th>
+                <th className="py-4 text-[9px] font-black uppercase tracking-widest text-white/20">Handle / Perfil</th>
+                <th className="py-4 text-[9px] font-black uppercase tracking-widest text-white/20">Categoría</th>
+                <th className="py-4 text-[9px] font-black uppercase tracking-widest text-white/20 text-center">Último Scan</th>
+                <th className="py-4 text-[9px] font-black uppercase tracking-widest text-white/20 text-center">Historial</th>
+                <th className="py-4 text-[9px] font-black uppercase tracking-widest text-white/20 text-right">Estado</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/[0.02]">
+              {[
+                { brand: 'Bembos', platform: 'TikTok/IG', handle: '@bembos_peru', type: 'Owned', status: 'Active' },
+                { brand: 'Papa Johns', platform: 'TikTok/IG', handle: '@papajohns_peru', type: 'Owned', status: 'Active' },
+                { brand: 'Popeyes', platform: 'TikTok', handle: '@popeyesperu', type: 'Owned', status: 'Active' },
+                { brand: 'China Wok', platform: 'TikTok', handle: '@chinawokperu', type: 'Owned', status: 'Active' },
+                { brand: 'Dunkin', platform: 'Instagram', handle: '@dunkin_peru', type: 'Owned', status: 'Active' },
+                { brand: 'McDonalds', platform: 'TikTok', handle: '@mcdonalds_peru', type: 'Competitor', status: 'Monitored' },
+                { brand: 'Burger King', platform: 'TikTok', handle: '@burgerking_peru', type: 'Competitor', status: 'Monitored' },
+                { brand: 'KFC', platform: 'TikTok', handle: '@kfcperu', type: 'Competitor', status: 'Monitored' },
+                { brand: 'Pizza Hut', platform: 'Instagram', handle: '@pizzahutperu', type: 'Competitor', status: 'Monitored' },
+                { brand: 'Starbucks', platform: 'Instagram', handle: '@starbuckspecu', type: 'Competitor', status: 'Monitored' }
+              ].map((row, i) => {
+                const statusData = brandsStatus[row.brand];
+                const hasData = statusData && statusData.count > 0;
+                const dateObj = hasData && statusData.lastUpdated ? new Date(statusData.lastUpdated) : null;
+                const dateStr = dateObj ? dateObj.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Esperando Data';
+                const count = hasData ? statusData.count : 0;
+                return (
+                  <tr key={i} className="group hover:bg-white/[0.01] transition-colors border-b border-white/[0.02]">
+                    <td className="py-4 text-xs font-black uppercase italic">
+                      {row.brand}
+                      <span className="block text-[8px] font-bold text-white/30 uppercase mt-0.5">{row.platform}</span>
+                    </td>
+                    <td className="py-4 text-[10px] font-medium text-accent-orange italic">{row.handle}</td>
+                    <td className="py-4">
+                      <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded ${row.type === 'Owned' ? 'bg-accent-lemon/10 text-accent-lemon' : 'bg-white/5 text-white/40'}`}>
+                        {row.type}
+                      </span>
+                    </td>
+                    <td className="py-4 text-center text-[9px] font-black uppercase italic tracking-widest opacity-40">{dateStr}</td>
+                    <td className="py-4 text-center text-[10px] font-black uppercase italic text-accent-lemon">{count > 0 ? `${count} Scans` : '0 Scans'}</td>
+                    <td className="py-4 flex items-center justify-end gap-2">
+                      <div className={`w-1 h-1 rounded-full ${hasData ? 'bg-accent-lemon animate-pulse' : 'bg-white/20'}`} />
+                      <span className="text-[9px] font-black uppercase tracking-tighter opacity-40">{hasData ? 'Tracking' : 'Pending'}</span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-[10px] text-white/20 font-medium italic">Automatización: Scrapers operativos sincronizados cada 24hs vía Apify Cloud para NGR Portfolio y Competencia Directa.</p>
+      </div>
+
+      {/* Integration Status */}
+      <div className="pwa-card p-8 bg-white/[0.02] border-white/5 space-y-6 lg:col-span-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3 text-white/80">
+            <Search size={20} />
+            <h3 className="text-xs font-black uppercase italic tracking-widest">Integraciones de IA & Notificaciones</h3>
+          </div>
+          <div className="flex gap-4">
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-accent-lemon/10 rounded-lg">
+              <div className="w-1.5 h-1.5 bg-accent-lemon rounded-full animate-pulse" />
+              <span className="text-[9px] font-black uppercase text-accent-lemon tracking-widest">Gemini 1.5 Flash Active</span>
+            </div>
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-accent-orange/10 rounded-lg">
+              <div className="w-1.5 h-1.5 bg-accent-orange rounded-full" />
+              <span className="text-[9px] font-black uppercase text-accent-orange tracking-widest">Slack Webhook Connected</span>
+            </div>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
+          <div className="p-4 bg-white/[0.03] rounded-2xl border border-white/5 space-y-2 text-center">
+            <p className="text-[10px] font-black text-white/30 uppercase tracking-widest">Apify API Usage</p>
+            <p className="text-xl font-black italic">14.2% <span className="text-[10px] font-normal opacity-30">quota rest.</span></p>
+          </div>
+          <div className="p-4 bg-white/[0.03] rounded-2xl border border-white/5 space-y-2 text-center">
+            <p className="text-[10px] font-black text-white/30 uppercase tracking-widest">Report Frequency</p>
+            <p className="text-xl font-black italic uppercase">Semanal</p>
+          </div>
+          <div className="p-4 bg-white/[0.03] rounded-2xl border border-white/5 space-y-2 text-center">
+            <p className="text-[10px] font-black text-white/30 uppercase tracking-widest">System Version</p>
+            <p className="text-xl font-black italic uppercase">v2.4.0 <span className="text-[10px] font-normal opacity-30">Latest</span></p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+);
+
+const HistoryView = ({ selectedBrand, setSelectedBrand, selectedPlatform, setSelectedPlatform, historicalData }) => (
+  <section className="space-y-12 pb-20">
+    <header className="flex flex-col md:flex-row justify-between items-start md:items-end gap-12">
+      <h1 className="pwa-title">Historial de <br /><span className="text-white/40">Comentarios</span></h1>
+      <div className="flex flex-row gap-6">
+        <CustomDropdown
+          label="Restaurant"
+          value={selectedBrand}
+          onChange={setSelectedBrand}
+          options={[
+            { label: 'Todos los Restaurants', value: '' },
+            { label: 'Bembos', value: 'Bembos' },
+            { label: 'Papa Johns', value: 'Papa Johns' },
+            { label: 'Dunkin', value: 'Dunkin' },
+            { label: 'Popeyes', value: 'Popeyes' },
+          ]}
+        />
+        <CustomDropdown
+          label="Canal Social"
+          value={selectedPlatform}
+          onChange={setSelectedPlatform}
+          options={[
+            { label: 'Todas las Plataformas', value: '' },
+            { label: 'TikTok', value: 'tiktok' },
+            { label: 'Instagram', value: 'instagram' },
+          ]}
+        />
+      </div>
+    </header>
+
+    <div className="pwa-card overflow-hidden border-white/5 bg-white/[0.02]">
+      <table className="w-full text-left">
+        <thead className="bg-white/5 border-b border-white/10">
+          <tr>
+            <th className="px-8 py-6 text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Usuario</th>
+            <th className="px-8 py-6 text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Comentario</th>
+            <th className="px-8 py-6 text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Canal</th>
+            <th className="px-8 py-6 text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Marca</th>
+            <th className="px-8 py-6 text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Análisis</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-white/5 text-sm">
+          {historicalData.length === 0 ? (
+            <tr><td colSpan="5" className="px-8 py-20 text-center opacity-20 italic">No se encontraron registros...</td></tr>
+          ) : (
+            historicalData.map((scan) => (scan.raw_comments || []).map((c, i) => (
+              <tr key={`${scan.timestamp}-${i}`} className="hover:bg-white/5 transition-colors group">
+                <td className="px-8 py-5">
+                  <div className="flex flex-col">
+                    <span className="font-bold text-accent-orange text-xs tracking-tight">@{c.author}</span>
+                    <span className="text-[9px] font-black uppercase opacity-20 mt-0.5">{(c.followers || 0)} followers</span>
+                  </div>
+                </td>
+                <td className="px-8 py-5">
+                  <p className="text-xs font-medium text-white/80 italic leading-snug max-w-sm">"{c.text}"</p>
+                </td>
+                <td className="px-8 py-5">
+                  <span className="px-2 py-1 bg-white/5 border border-white/10 rounded-lg text-[8px] font-black uppercase tracking-widest text-white/40">{scan.platform}</span>
+                </td>
+                <td className="px-8 py-5 font-black italic uppercase text-[10px] tracking-widest text-white/60">{scan.brand}</td>
+                <td className="px-8 py-5">
+                  <div className={`flex items-center gap-2 ${scan.sentiment?.negative > 30 ? 'text-accent-pink' : 'text-accent-lemon'}`}>
+                    <div className={`w-1.5 h-1.5 rounded-full ${scan.sentiment?.negative > 30 ? 'bg-accent-pink shadow-[0_0_8px_rgba(255,83,186,0.6)]' : 'bg-accent-lemon shadow-[0_0_8px_rgba(152,255,188,0.6)]'}`} />
+                    <span className="text-[10px] font-black uppercase italic tracking-tighter">{scan.sentiment?.negative > 30 ? 'Crítico' : 'Saludable'}</span>
+                  </div>
+                </td>
+              </tr>
+            )))
+          )}
+        </tbody>
+      </table>
+    </div>
+  </section>
+);
+
+const ScoutBotView = ({ platform, setPlatform, url, setUrl, handleScout, isScraping, insights, scrapedData }) => (
+  <section className="space-y-8 pb-20">
+    <header className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+      <div>
+        <p className="text-xs font-bold text-white/20 uppercase tracking-widest mb-2">Social Listening Agent</p>
+        <h1 className="pwa-title">Scout Bot <br /><span className="text-accent-orange">Extractor</span></h1>
+      </div>
+      <div className="flex flex-col flex-1 max-w-md gap-4">
+        <div className="flex gap-2">
+          {['tiktok', 'instagram', 'google-maps', 'facebook'].map(p => (
+            <button key={p} onClick={() => setPlatform(p)} className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all ${platform === p ? 'bg-accent-orange border-accent-orange text-black' : 'bg-white/5 border-white/10 text-white/40'}`}>{p}</button>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <input className="pwa-card bg-white/5 border-white/10 px-4 py-2 text-xs flex-1 outline-none focus:border-accent-orange" placeholder={`URL de ${platform}...`} value={url} onChange={(e) => setUrl(e.target.value)} />
+          <button onClick={handleScout} disabled={isScraping} className="pwa-btn px-6 py-2">{isScraping ? 'Analizando...' : 'Escanear'}</button>
+        </div>
+        <div className="flex flex-wrap gap-2 pt-2">
+          <span className="text-[9px] font-black uppercase text-white/20 w-full mb-1">Empresas NGR (Quick Connect)</span>
+          {(platform === 'tiktok' ? [
+            { label: 'Bembos', url: 'https://www.tiktok.com/@bembos_peru' },
+            { label: 'Papa Johns', url: 'https://www.tiktok.com/@papajohns_peru' }
+          ] : platform === 'instagram' ? [
+            { label: 'Popeyes', url: 'https://www.instagram.com/popeyesperu/' },
+            { label: 'Dunkin', url: 'https://www.instagram.com/dunkin_peru/' }
+          ] : platform === 'google-maps' ? [
+            { label: 'Bembos Surco', url: 'https://www.google.com/maps/search/bembos+surco' }
+          ] : []).map(link => (
+            <button
+              key={link.label}
+              onClick={() => { setUrl(link.url); setPlatform(platform); }}
+              className="px-3 py-1 bg-white/5 border border-white/10 rounded-full text-[8px] font-black uppercase tracking-widest text-white/40 hover:text-accent-orange hover:border-accent-orange transition-all"
+            >
+              {link.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </header>
+
+    {insights && (
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="lg:col-span-8 pwa-card p-8 bg-gradient-to-br from-accent-orange/10 to-transparent border-accent-orange/20 space-y-8">
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="px-3 py-1 bg-accent-orange text-black font-black text-[10px] uppercase italic rounded-full">AI Insight</div>
+              <h2 className="text-xl font-black italic uppercase tracking-tighter">Resumen Ejecutivo</h2>
+            </div>
+            <p className="text-lg font-bold text-white/90 leading-relaxed italic">"{insights.summary}"</p>
+            <div className="flex flex-row gap-3">
+              <SentimentPill type="positive" count={`${insights.sentiment?.positive || 0}%`} />
+              <SentimentPill type="negative" count={`${insights.sentiment?.negative || 0}%`} />
+            </div>
+          </div>
+          {insights.topicClusters && (
+            <div className="space-y-4 border-t border-white/5 pt-6">
+              <h3 className="text-[10px] font-black uppercase tracking-widest text-white/30">Topic Clusters</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {insights.topicClusters.map((cluster, i) => (
+                  <div key={i} className="p-4 bg-white/5 rounded-xl border border-white/5 flex justify-between items-center group hover:bg-white/10 transition-all">
+                    <div>
+                      <p className="text-sm font-bold italic tracking-tight">{cluster.label}</p>
+                      <p className="text-[9px] font-medium uppercase text-white/20">{cluster.count} menciones</p>
+                    </div>
+                    <div className={`w-2 h-2 rounded-full ${cluster.sentiment === 'negative' ? 'bg-accent-pink shadow-[0_0_10px_rgba(255,83,186,0.5)]' : 'bg-accent-lemon'}`} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </motion.div>
+        <div className="lg:col-span-4 pwa-card p-6 bg-accent-lemon/5 border-accent-lemon/10 space-y-4">
+          <h3 className="font-black italic uppercase text-xs tracking-widest text-accent-lemon">AI Responder</h3>
+          {insights.suggestedReplies?.map((r, i) => (
+            <div key={i} className="p-3 bg-white/5 rounded-lg text-xs space-y-2">
+              <p className="opacity-40 italic">"{r.comment}"</p>
+              <p className="font-bold">"{r.reply}"</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    )}
+
+    {scrapedData.length > 0 && (
+      <div className="grid gap-4 mt-8">
+        <h3 className="text-xs font-black italic uppercase tracking-widest text-white/40">Comentarios Extraídos</h3>
+        {scrapedData.map((c, i) => (
+          <div key={i} className="pwa-card p-4 flex gap-4 items-start">
+            <div className="w-8 h-8 rounded-full bg-white/10 shrink-0" />
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <p className="text-[10px] font-black uppercase text-accent-orange">@{c.author}</p>
+                {c.followers > 1000 && <span className="px-2 py-0.5 bg-accent-lemon/20 text-accent-lemon text-[8px] font-black uppercase rounded">Influencer {(c.followers / 1000).toFixed(1)}k</span>}
+              </div>
+              <p className="text-sm font-bold text-white/80">{c.text}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    )}
+  </section>
+);
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('home');
   const [url, setUrl] = useState('');
@@ -570,6 +1166,7 @@ export default function App() {
             {[
               { id: 'home', label: 'Inicio', icon: Home },
               { id: 'insights', label: 'Dashboard', icon: BarChart3 },
+              { id: 'youtube', label: 'Sentimining', icon: Youtube },
               { id: 'scout', label: 'Scout Bot', icon: Search },
               { id: 'history', label: 'Historial', icon: Filter },
               { id: 'settings', label: 'Ajustes', icon: Settings },
@@ -590,504 +1187,30 @@ export default function App() {
           {activeTab === 'home' ? (
             <LandingPage onEnter={() => setActiveTab('insights')} />
           ) : activeTab === 'insights' ? (
-            <div className="space-y-12 pb-20">
-              <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <MetricCard title="Menciones" value={history.length > 0 ? `${(history.reduce((acc, h) => acc + (h.commentsCount || 0), 0) / 100).toFixed(1)}k` : "1.2k"} change="12" icon={MessageSquare} />
-                <MetricCard title="Sentiment Health" value={history.length > 0 ? `${Math.round(history.reduce((acc, h) => acc + (h.sentiment?.positive || 0), 0) / history.length)}%` : "78%"} change="5" icon={BarChart3} />
-                <MetricCard title="Riesgos Activos" value={alerts.length || "2"} change={alerts.length > 0 ? "-2" : "0"} icon={Settings} />
-              </section>
-
-              {report && (
-                <section className="pwa-card p-10 bg-gradient-to-br from-white/[0.03] to-transparent border-white/10 relative overflow-hidden group">
-                  <div className="absolute top-0 right-0 w-64 h-64 bg-accent-lemon/5 blur-[100px] rounded-full -mr-20 -mt-20 group-hover:bg-accent-lemon/10 transition-all duration-700" />
-                  <div className="relative z-10 space-y-8">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className="px-4 py-1.5 bg-accent-lemon text-black font-black text-[10px] uppercase italic rounded-full shadow-[0_0_20px_rgba(152,255,188,0.4)]">Executive Report</div>
-                        <h2 className="text-2xl font-black italic uppercase tracking-tighter">Strategic Management Briefing</h2>
-                      </div>
-                      <span className="text-[10px] font-black uppercase text-white/20 tracking-widest">Semana 08 / 2026</span>
-                    </div>
-
-                    <p className="text-lg font-bold text-white/90 italic leading-relaxed max-w-2xl">"{report.executiveBrief}"</p>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                      {report.brandPerformance.map((bp, i) => (
-                        <div key={i} className="space-y-1">
-                          <p className="text-[10px] font-black uppercase text-white/30">{bp.brand}</p>
-                          <p className={`font-black uppercase italic text-sm ${bp.status === 'Crisis' ? 'text-accent-pink' : 'text-accent-lemon'}`}>{bp.status}</p>
-                          <p className="text-[11px] font-medium text-white/60 leading-tight">{bp.keyFinding}</p>
-                        </div>
-                      ))}
-                    </div>
-
-                    <div className="pt-6 border-t border-white/5 flex flex-col md:flex-row gap-12">
-                      <div className="flex-1 space-y-3">
-                        <h4 className="text-[10px] font-black uppercase tracking-widest text-accent-pink">Top Strategic Risk</h4>
-                        <p className="text-xs font-bold text-white/80">{report.topStrategicRisk}</p>
-                      </div>
-                      <div className="flex-1 space-y-3">
-                        <h4 className="text-[10px] font-black uppercase tracking-widest text-accent-lemon">Action Plan</h4>
-                        <div className="flex flex-wrap gap-2">
-                          {report.nextSteps.map((step, i) => (
-                            <span key={i} className="text-[9px] font-black uppercase px-3 py-1 bg-white/5 border border-white/10 rounded-full">{step}</span>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </section>
-              )}
-
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                <section className="lg:col-span-4 space-y-6">
-                  <ShareOfVoiceChart
-                    data={[
-                      { name: 'BEMBOS', count: 450, color: '#98FFBC' },
-                      { name: 'PAPA JOHNS', count: 280, color: '#FF53BA' },
-                      { name: 'DUNKIN', count: 180, color: '#ff7700' },
-                      { name: 'POPEYES', count: 120, color: '#ffffff' }
-                    ]}
-                  />
-                </section>
-
-                <section className="lg:col-span-4 pwa-card p-8 bg-white/[0.02] border-white/5 space-y-6">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-xs font-black uppercase italic tracking-widest text-white/40">Competitive Pulse</h3>
-                    <div className="flex items-center gap-2">
-                      <div className="w-1.5 h-1.5 bg-accent-lemon rounded-full animate-pulse" />
-                      <span className="text-[9px] font-black uppercase text-accent-lemon tracking-widest">NGR Leading</span>
-                    </div>
-                  </div>
-                  <div className="space-y-5 pt-2">
-                    {[
-                      { name: 'NGR Portfolio', score: 82, color: 'accent-lemon' },
-                      { name: "McDonald's Peru", score: 65, color: 'white/10' },
-                      { name: "Burger King", score: 58, color: 'white/10' },
-                      { name: "KFC Peru", score: 71, color: 'white/10' }
-                    ].map(c => (
-                      <div key={c.name} className="space-y-2">
-                        <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
-                          <span className="opacity-40">{c.name}</span>
-                          <span className={c.score > 70 ? 'text-accent-lemon' : 'opacity-40'}>{c.score} Sent. pts</span>
-                        </div>
-                        <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
-                          <div className={`h-full transition-all duration-1000 ${c.score > 75 ? 'bg-accent-lemon shadow-[0_0_8px_rgba(152,255,188,0.4)]' : 'bg-white/20'}`} style={{ width: `${c.score}%` }} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <p className="text-[9px] font-medium text-white/20 italic pt-2">Benchmarking automático basado en clusters semánticos del sector QSR.</p>
-                </section>
-
-                <section className="lg:col-span-4 space-y-6">
-                  <div className="flex justify-between items-center">
-                    <h3 className="text-xs font-black italic uppercase tracking-widest text-white/40">Ambassador Hub</h3>
-                    <span className="text-[9px] font-black uppercase text-accent-lemon">Top Reach Fans</span>
-                  </div>
-                  <div className="grid grid-cols-1 gap-4">
-                    {[
-                      { user: '@foodie_lima', reach: '52k', brand: 'Bembos', avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=150&h=150' },
-                      { user: '@travel_peru', reach: '128k', brand: 'Popeyes', avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&q=80&w=150&h=150' },
-                      { user: '@lima_eats', reach: '25k', brand: 'Bembos', avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=150&h=150' }
-                    ].map((fan, i) => (
-                      <div key={i} className="pwa-card p-4 bg-white/[0.02] border-white/5 flex items-center gap-4 hover:bg-white/[0.04] transition-all cursor-pointer">
-                        <img src={fan.avatar} className="w-10 h-10 rounded-xl object-cover border border-white/10" alt={fan.user} />
-                        <div className="flex-1">
-                          <p className="font-black italic uppercase text-[10px]">{fan.user}</p>
-                          <p className="text-[8px] font-black uppercase text-white/30 tracking-widest">{fan.brand}</p>
-                        </div>
-                        <span className="text-[9px] font-black text-accent-lemon uppercase">{fan.reach}</span>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              </div>
-
-              {/* Nube de palabras de impacto (Word Cloud) */}
-              <section className="w-full">
-                <CyberWordCloud
-                  words={
-                    history[0]?.wordCloud || [
-                      { word: "SABOR", weight: 95 },
-                      { word: "PRECIO", weight: 80 },
-                      { word: "DEMORA", weight: 60 },
-                      { word: "DELIVERY", weight: 45 },
-                      { word: "PROMOS", weight: 90 },
-                      { word: "FRIO", weight: 30 },
-                      { word: "EXCELENTE", weight: 85 },
-                      { word: "RÁPIDO", weight: 70 },
-                      { word: "MALA ATENCIÓN", weight: 50 },
-                      { word: "ME ENCANTA", weight: 100 },
-                      { word: "CRUJIENTE", weight: 75 },
-                      { word: "CARO", weight: 40 },
-                      { word: "APP", weight: 65 }
-                    ]
-                  }
-                />
-              </section>
-
-            </div>
+            <DashboardView history={history} alerts={alerts} report={report} />
+          ) : activeTab === 'youtube' ? (
+            <YouTubeSection />
           ) : activeTab === 'scout' ? (
-            <section className="space-y-8 pb-20">
-              <header className="flex flex-col md:flex-row md:items-end justify-between gap-6">
-                <div>
-                  <p className="text-xs font-bold text-white/20 uppercase tracking-widest mb-2">Social Listening Agent</p>
-                  <h1 className="pwa-title">Scout Bot <br /><span className="text-accent-orange">Extractor</span></h1>
-                </div>
-                <div className="flex flex-col flex-1 max-w-md gap-4">
-                  <div className="flex gap-2">
-                    {['tiktok', 'instagram', 'google-maps', 'facebook'].map(p => (
-                      <button key={p} onClick={() => setPlatform(p)} className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all ${platform === p ? 'bg-accent-orange border-accent-orange text-black' : 'bg-white/5 border-white/10 text-white/40'}`}>{p}</button>
-                    ))}
-                  </div>
-                  <div className="flex gap-2">
-                    <input className="pwa-card bg-white/5 border-white/10 px-4 py-2 text-xs flex-1 outline-none focus:border-accent-orange" placeholder={`URL de ${platform}...`} value={url} onChange={(e) => setUrl(e.target.value)} />
-                    <button onClick={handleScout} disabled={isScraping} className="pwa-btn px-6 py-2">{isScraping ? 'Analizando...' : 'Escanear'}</button>
-                  </div>
-
-                  {/* Quick Connect Links */}
-                  <div className="flex flex-wrap gap-2 pt-2">
-                    <span className="text-[9px] font-black uppercase text-white/20 w-full mb-1">Empresas NGR (Quick Connect)</span>
-                    {(platform === 'tiktok' ? [
-                      { label: 'Bembos', url: 'https://www.tiktok.com/@bembos_peru' },
-                      { label: 'Papa Johns', url: 'https://www.tiktok.com/@papajohns_peru' }
-                    ] : platform === 'instagram' ? [
-                      { label: 'Popeyes', url: 'https://www.instagram.com/popeyesperu/' },
-                      { label: 'Dunkin', url: 'https://www.instagram.com/dunkin_peru/' }
-                    ] : platform === 'google-maps' ? [
-                      { label: 'Bembos Surco', url: 'https://www.google.com/maps/search/bembos+surco' }
-                    ] : []).map(link => (
-                      <button
-                        key={link.label}
-                        onClick={() => { setUrl(link.url); setPlatform(platform); }}
-                        className="px-3 py-1 bg-white/5 border border-white/10 rounded-full text-[8px] font-black uppercase tracking-widest text-white/40 hover:text-accent-orange hover:border-accent-orange transition-all"
-                      >
-                        {link.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </header>
-
-              {insights && (
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                  <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="lg:col-span-8 pwa-card p-8 bg-gradient-to-br from-accent-orange/10 to-transparent border-accent-orange/20 space-y-8">
-                    <div className="space-y-4">
-                      <div className="flex items-center gap-3">
-                        <div className="px-3 py-1 bg-accent-orange text-black font-black text-[10px] uppercase italic rounded-full">AI Insight</div>
-                        <h2 className="text-xl font-black italic uppercase tracking-tighter">Resumen Ejecutivo</h2>
-                      </div>
-                      <p className="text-lg font-bold text-white/90 leading-relaxed italic">"{insights.summary}"</p>
-                      <div className="flex flex-row gap-3">
-                        <SentimentPill type="positive" count={`${insights.sentiment?.positive || 0}%`} />
-                        <SentimentPill type="negative" count={`${insights.sentiment?.negative || 0}%`} />
-                      </div>
-                    </div>
-
-                    {insights.topicClusters && (
-                      <div className="space-y-4 border-t border-white/5 pt-6">
-                        <h3 className="text-[10px] font-black uppercase tracking-widest text-white/30">Topic Clusters</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {insights.topicClusters.map((cluster, i) => (
-                            <div key={i} className="p-4 bg-white/5 rounded-xl border border-white/5 flex justify-between items-center group hover:bg-white/10 transition-all">
-                              <div>
-                                <p className="text-sm font-bold italic tracking-tight">{cluster.label}</p>
-                                <p className="text-[9px] font-medium uppercase text-white/20">{cluster.count} menciones</p>
-                              </div>
-                              <div className={`w-2 h-2 rounded-full ${cluster.sentiment === 'negative' ? 'bg-accent-pink shadow-[0_0_10px_rgba(255,83,186,0.5)]' : 'bg-accent-lemon'}`} />
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </motion.div>
-                  <div className="lg:col-span-4 pwa-card p-6 bg-accent-lemon/5 border-accent-lemon/10 space-y-4">
-                    <h3 className="font-black italic uppercase text-xs tracking-widest text-accent-lemon">AI Responder</h3>
-                    {insights.suggestedReplies?.map((r, i) => (
-                      <div key={i} className="p-3 bg-white/5 rounded-lg text-xs space-y-2">
-                        <p className="opacity-40 italic">"{r.comment}"</p>
-                        <p className="font-bold">"{r.reply}"</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {scrapedData.length > 0 && (
-                <div className="grid gap-4 mt-8">
-                  <h3 className="text-xs font-black italic uppercase tracking-widest text-white/40">Comentarios Extraídos</h3>
-                  {scrapedData.map((c, i) => (
-                    <div key={i} className="pwa-card p-4 flex gap-4 items-start">
-                      <div className="w-8 h-8 rounded-full bg-white/10 shrink-0" />
-                      <div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <p className="text-[10px] font-black uppercase text-accent-orange">@{c.author}</p>
-                          {c.followers > 1000 && <span className="px-2 py-0.5 bg-accent-lemon/20 text-accent-lemon text-[8px] font-black uppercase rounded">Influencer {(c.followers / 1000).toFixed(1)}k</span>}
-                        </div>
-                        <p className="text-sm font-bold text-white/80">{c.text}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
+            <ScoutBotView
+              platform={platform}
+              setPlatform={setPlatform}
+              url={url}
+              setUrl={setUrl}
+              handleScout={handleScout}
+              isScraping={isScraping}
+              insights={insights}
+              scrapedData={scrapedData}
+            />
           ) : activeTab === 'history' ? (
-            <section className="space-y-12 pb-20">
-              <header className="flex flex-col md:flex-row justify-between items-start md:items-end gap-12">
-                <h1 className="pwa-title">Historial de <br /><span className="text-white/40">Comentarios</span></h1>
-                <div className="flex flex-row gap-6">
-                  <CustomDropdown
-                    label="Restaurant"
-                    value={selectedBrand}
-                    onChange={setSelectedBrand}
-                    options={[
-                      { label: 'Todos los Restaurants', value: '' },
-                      { label: 'Bembos', value: 'Bembos' },
-                      { label: 'Papa Johns', value: 'Papa Johns' },
-                      { label: 'Dunkin', value: 'Dunkin' },
-                      { label: 'Popeyes', value: 'Popeyes' },
-                    ]}
-                  />
-                  <CustomDropdown
-                    label="Canal Social"
-                    value={selectedPlatform}
-                    onChange={setSelectedPlatform}
-                    options={[
-                      { label: 'Todas las Plataformas', value: '' },
-                      { label: 'TikTok', value: 'tiktok' },
-                      { label: 'Instagram', value: 'instagram' },
-                    ]}
-                  />
-                </div>
-              </header>
-
-              <div className="pwa-card overflow-hidden border-white/5 bg-white/[0.02]">
-                <table className="w-full text-left">
-                  <thead className="bg-white/5 border-b border-white/10">
-                    <tr>
-                      <th className="px-8 py-6 text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Usuario</th>
-                      <th className="px-8 py-6 text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Comentario</th>
-                      <th className="px-8 py-6 text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Canal</th>
-                      <th className="px-8 py-6 text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Marca</th>
-                      <th className="px-8 py-6 text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Análisis</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/5 text-sm">
-                    {historicalData.length === 0 ? (
-                      <tr><td colSpan="5" className="px-8 py-20 text-center opacity-20 italic">No se encontraron registros...</td></tr>
-                    ) : (
-                      historicalData.map((scan) => (scan.raw_comments || []).map((c, i) => (
-                        <tr key={`${scan.timestamp}-${i}`} className="hover:bg-white/5 transition-colors group">
-                          <td className="px-8 py-5">
-                            <div className="flex flex-col">
-                              <span className="font-bold text-accent-orange text-xs tracking-tight">@{c.author}</span>
-                              <span className="text-[9px] font-black uppercase opacity-20 mt-0.5">{(c.followers || 0)} followers</span>
-                            </div>
-                          </td>
-                          <td className="px-8 py-5">
-                            <p className="text-xs font-medium text-white/80 italic leading-snug max-w-sm">"{c.text}"</p>
-                          </td>
-                          <td className="px-8 py-5">
-                            <span className="px-2 py-1 bg-white/5 border border-white/10 rounded-lg text-[8px] font-black uppercase tracking-widest text-white/40">{scan.platform}</span>
-                          </td>
-                          <td className="px-8 py-5 font-black italic uppercase text-[10px] tracking-widest text-white/60">{scan.brand}</td>
-                          <td className="px-8 py-5">
-                            <div className={`flex items-center gap-2 ${scan.sentiment?.negative > 30 ? 'text-accent-pink' : 'text-accent-lemon'}`}>
-                              <div className={`w-1.5 h-1.5 rounded-full ${scan.sentiment?.negative > 30 ? 'bg-accent-pink shadow-[0_0_8px_rgba(255,83,186,0.6)]' : 'bg-accent-lemon shadow-[0_0_8px_rgba(152,255,188,0.6)]'}`} />
-                              <span className="text-[10px] font-black uppercase italic tracking-tighter">{scan.sentiment?.negative > 30 ? 'Crítico' : 'Saludable'}</span>
-                            </div>
-                          </td>
-                        </tr>
-                      )))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </section>
+            <HistoryView
+              selectedBrand={selectedBrand}
+              setSelectedBrand={setSelectedBrand}
+              selectedPlatform={selectedPlatform}
+              setSelectedPlatform={setSelectedPlatform}
+              historicalData={historicalData}
+            />
           ) : (
-            <section className="space-y-12 pb-20">
-              <h1 className="pwa-title">Panel de <br /><span className="text-white/40">Configuración</span></h1>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                {/* Sentiment Alerts */}
-                <div className="pwa-card p-8 bg-white/[0.02] border-white/5 space-y-6">
-                  <div className="flex items-center gap-3 text-accent-orange">
-                    <Settings size={20} />
-                    <h3 className="text-xs font-black uppercase italic tracking-widest">Alertas de Sentimiento</h3>
-                  </div>
-                  <p className="text-xs text-white/40 leading-relaxed font-medium italic">
-                    Define los umbrales críticos para disparar alertas automáticas al Directorio y Slack.
-                  </p>
-
-                  <div className="space-y-6 pt-4">
-                    <div className="space-y-2">
-                      <div className="flex justify-between text-[10px] uppercase font-black tracking-widest opacity-60">
-                        <span>Umbral de Crisis</span>
-                        <span className="text-accent-pink">30% Negativo</span>
-                      </div>
-                      <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-                        <div className="h-full bg-accent-pink w-[30%] shadow-[0_0_10px_rgba(255,83,186,0.3)]" />
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <div className="flex justify-between text-[10px] uppercase font-black tracking-widest opacity-60">
-                        <span>Salud de Marca (Mínimo)</span>
-                        <span className="text-accent-lemon">70% Positivo</span>
-                      </div>
-                      <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-                        <div className="h-full bg-accent-lemon w-[70%] shadow-[0_0_10px_rgba(152,255,188,0.3)]" />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Intelligence Matrix Table */}
-                <div className="pwa-card p-8 bg-white/[0.02] border-white/5 space-y-6 lg:col-span-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3 text-accent-lemon">
-                      <BarChart3 size={20} />
-                      <h3 className="text-xs font-black uppercase italic tracking-widest">Matriz de Inteligencia Estratégica</h3>
-                    </div>
-                    <div className="flex gap-4">
-                      <button
-                        onClick={async () => {
-                          const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
-                          if (!confirm("Esto generará datos sintéticos realistas para los últimos 7 días. ¿Continuar?")) return;
-
-                          try {
-                            const res = await axios.post(`${API_BASE}/api/admin/seed-history`);
-                            alert("Cold Start completado. El historial de 7 días ya está disponible.");
-                            window.location.reload();
-                          } catch (e) {
-                            alert("Error al popular historial.");
-                          }
-                        }}
-                        className="px-6 py-2 bg-white/5 text-white/60 border border-white/10 text-[10px] font-black uppercase italic rounded-full hover:bg-white/10 transition-all"
-                      >
-                        Cold Start: Poblar 7 Días
-                      </button>
-                      <button
-                        onClick={async () => {
-                          const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
-                          alert("Iniciando escaneo masivo de las 10 marcas (Propias + Competencia). Esto tomará un par de minutos en 2do plano.");
-                          const res = await axios.post(`${API_BASE}/api/admin/scout-all`);
-                          console.log("Scout Result:", res.data);
-                        }}
-                        className="px-6 py-2 bg-accent-lemon text-black font-black text-[10px] uppercase italic rounded-full hover:scale-105 transition-all shadow-[0_0_20px_rgba(152,255,188,0.2)]"
-                      >
-                        Ejecutar Escaneo Masivo
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="overflow-x-auto overflow-y-auto max-h-[400px] no-scrollbar">
-                    <table className="w-full text-left border-collapse">
-                      <thead className="sticky top-0 bg-[#0a0a0a] z-10 shadow-sm">
-                        <tr className="border-b border-white/5">
-                          <th className="py-4 text-[9px] font-black uppercase tracking-widest text-white/20">Marca / Entidad</th>
-                          <th className="py-4 text-[9px] font-black uppercase tracking-widest text-white/20">Handle / Perfil</th>
-                          <th className="py-4 text-[9px] font-black uppercase tracking-widest text-white/20">Categoría</th>
-                          <th className="py-4 text-[9px] font-black uppercase tracking-widest text-white/20 text-center">Último Scan</th>
-                          <th className="py-4 text-[9px] font-black uppercase tracking-widest text-white/20 text-center">Historial</th>
-                          <th className="py-4 text-[9px] font-black uppercase tracking-widest text-white/20 text-right">Estado</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-white/[0.02]">
-                        {[
-                          { brand: 'Bembos', platform: 'TikTok/IG', handle: '@bembos_peru', type: 'Owned', status: 'Active' },
-                          { brand: 'Papa Johns', platform: 'TikTok/IG', handle: '@papajohns_peru', type: 'Owned', status: 'Active' },
-                          { brand: 'Popeyes', platform: 'TikTok', handle: '@popeyesperu', type: 'Owned', status: 'Active' },
-                          { brand: 'China Wok', platform: 'TikTok', handle: '@chinawokperu', type: 'Owned', status: 'Active' },
-                          { brand: 'Dunkin', platform: 'Instagram', handle: '@dunkin_peru', type: 'Owned', status: 'Active' },
-                          { brand: 'McDonalds', platform: 'TikTok', handle: '@mcdonalds_peru', type: 'Competitor', status: 'Monitored' },
-                          { brand: 'Burger King', platform: 'TikTok', handle: '@burgerking_peru', type: 'Competitor', status: 'Monitored' },
-                          { brand: 'KFC', platform: 'TikTok', handle: '@kfcperu', type: 'Competitor', status: 'Monitored' },
-                          { brand: 'Pizza Hut', platform: 'Instagram', handle: '@pizzahutperu', type: 'Competitor', status: 'Monitored' },
-                          { brand: 'Starbucks', platform: 'Instagram', handle: '@starbuckspecu', type: 'Competitor', status: 'Monitored' }
-                        ].map((row, i) => {
-                          const statusData = brandsStatus[row.brand];
-                          const hasData = statusData && statusData.count > 0;
-                          const dateObj = hasData && statusData.lastUpdated ? new Date(statusData.lastUpdated) : null;
-                          const dateStr = dateObj ? dateObj.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Esperando Data';
-                          const count = hasData ? statusData.count : 0;
-
-                          return (
-                            <tr key={i} className="group hover:bg-white/[0.01] transition-colors border-b border-white/[0.02]">
-                              <td className="py-4 text-xs font-black uppercase italic">
-                                {row.brand}
-                                <span className="block text-[8px] font-bold text-white/30 uppercase mt-0.5">{row.platform}</span>
-                              </td>
-                              <td className="py-4">
-                                <span className="text-[10px] font-medium text-accent-orange italic">{row.handle}</span>
-                              </td>
-                              <td className="py-4">
-                                <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded ${row.type === 'Owned' ? 'bg-accent-lemon/10 text-accent-lemon' : 'bg-white/5 text-white/40'}`}>
-                                  {row.type}
-                                </span>
-                              </td>
-                              <td className="py-4 text-center">
-                                <span className={`text-[9px] font-black uppercase italic tracking-widest ${hasData ? 'text-white/60' : 'text-white/20'}`}>
-                                  {dateStr}
-                                </span>
-                              </td>
-                              <td className="py-4 text-center">
-                                <span className={`text-[10px] font-black uppercase italic ${count > 0 ? 'text-accent-lemon' : 'text-white/20'}`}>
-                                  {count > 0 ? `${count} Scans` : '0 Scans'}
-                                </span>
-                              </td>
-                              <td className="py-4">
-                                <div className="flex items-center justify-end gap-2">
-                                  <div className={`w-1 h-1 rounded-full ${hasData ? 'bg-accent-lemon animate-pulse' : 'bg-white/20'}`} />
-                                  <span className="text-[9px] font-black uppercase tracking-tighter opacity-40">{hasData ? 'Tracking' : 'Pending'}</span>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                  <p className="text-[10px] text-white/20 font-medium italic">Automatización: Scrapers operativos sincronizados cada 24hs vía Apify Cloud para NGR Portfolio y Competencia Directa.</p>
-                </div>
-
-                {/* Integration Status */}
-                <div className="pwa-card p-8 bg-white/[0.02] border-white/5 space-y-6 lg:col-span-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3 text-white/80">
-                      <Search size={20} />
-                      <h3 className="text-xs font-black uppercase italic tracking-widest">Integraciones de IA & Notificaciones</h3>
-                    </div>
-                    <div className="flex gap-4">
-                      <div className="flex items-center gap-2 px-3 py-1.5 bg-accent-lemon/10 rounded-lg">
-                        <div className="w-1.5 h-1.5 bg-accent-lemon rounded-full animate-pulse" />
-                        <span className="text-[9px] font-black uppercase text-accent-lemon tracking-widest">Gemini 1.5 Flash Active</span>
-                      </div>
-                      <div className="flex items-center gap-2 px-3 py-1.5 bg-accent-orange/10 rounded-lg">
-                        <div className="w-1.5 h-1.5 bg-accent-orange rounded-full" />
-                        <span className="text-[9px] font-black uppercase text-accent-orange tracking-widest">Slack Webhook Connected</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
-                    <div className="p-4 bg-white/[0.03] rounded-2xl border border-white/5 space-y-2">
-                      <p className="text-[10px] font-black text-white/30 uppercase tracking-widest">Apify API Usage</p>
-                      <p className="text-xl font-black italic">14.2% <span className="text-[10px] font-normal opacity-30">quota rest.</span></p>
-                    </div>
-                    <div className="p-4 bg-white/[0.03] rounded-2xl border border-white/5 space-y-2">
-                      <p className="text-[10px] font-black text-white/30 uppercase tracking-widest">Report Frequency</p>
-                      <p className="text-xl font-black italic uppercase">Semanal</p>
-                    </div>
-                    <div className="p-4 bg-white/[0.03] rounded-2xl border border-white/5 space-y-2">
-                      <p className="text-[10px] font-black text-white/30 uppercase tracking-widest">System Version</p>
-                      <p className="text-xl font-black italic uppercase">v2.4.0 <span className="text-[10px] font-normal opacity-30">Latest</span></p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </section>
+            <SettingsView brandsStatus={brandsStatus} />
           )}
         </main>
       </div>
