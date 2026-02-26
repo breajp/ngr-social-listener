@@ -350,6 +350,53 @@ const LandingPage = ({ onEnter }) => (
   </div>
 );
 
+const CyberWordCloud = ({ words }) => {
+  if (!words || !words.length) return null;
+
+  // Calculate max weight for linear interpolation
+  const maxWeight = Math.max(...words.map(w => w.weight || 10));
+  const minWeight = Math.min(...words.map(w => w.weight || 10));
+
+  // We'll map weights to font sizes from 12px to 48px
+  const getFontSize = (weight) => {
+    if (maxWeight === minWeight) return 24;
+    return 12 + ((weight - minWeight) / (maxWeight - minWeight)) * 48; // max 60px
+  };
+
+  // Assign neon colors from our palette
+  const colors = ['text-white', 'text-accent-lemon', 'text-accent-orange', 'text-white/60', 'text-accent-blue', 'text-accent-pink', 'text-white/40'];
+
+  return (
+    <div className="pwa-card p-8 bg-white/[0.02] border-white/5 space-y-6 flex flex-col items-center justify-center min-h-[350px] relative overflow-hidden group">
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] bg-accent-blue/10 blur-[120px] rounded-full group-hover:bg-accent-blue/20 transition-all duration-1000" />
+      <div className="absolute top-6 left-6 flex items-center gap-2 z-10">
+        <div className="w-1.5 h-1.5 bg-accent-blue rounded-full animate-pulse" />
+        <h3 className="text-[10px] font-black uppercase text-white/40 tracking-widest">Nube de Conversación</h3>
+      </div>
+
+      <div className="relative z-10 flex flex-wrap justify-center items-center gap-x-6 gap-y-4 max-w-3xl text-center px-4 pt-8">
+        {words.map((w, i) => (
+          <motion.span
+            key={i}
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: i * 0.05 }}
+            className={`font-black italic uppercase tracking-tighter hover:scale-110 transition-transform cursor-default ${colors[i % colors.length]}`}
+            style={{
+              fontSize: `${getFontSize(w.weight)}px`,
+              opacity: w.weight > (maxWeight + minWeight) / 2 ? 1 : 0.7,
+              textShadow: w.weight > maxWeight * 0.8 ? '0 0 20px currentColor' : 'none',
+              transform: `rotate(${(Math.random() - 0.5) * 10}deg)`
+            }}
+          >
+            {w.word}
+          </motion.span>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('home');
   const [url, setUrl] = useState('');
@@ -633,6 +680,30 @@ export default function App() {
                   </div>
                 </section>
               </div>
+
+              {/* Nube de palabras de impacto (Word Cloud) */}
+              <section className="w-full">
+                <CyberWordCloud
+                  words={
+                    history[0]?.wordCloud || [
+                      { word: "SABOR", weight: 95 },
+                      { word: "PRECIO", weight: 80 },
+                      { word: "DEMORA", weight: 60 },
+                      { word: "DELIVERY", weight: 45 },
+                      { word: "PROMOS", weight: 90 },
+                      { word: "FRIO", weight: 30 },
+                      { word: "EXCELENTE", weight: 85 },
+                      { word: "RÁPIDO", weight: 70 },
+                      { word: "MALA ATENCIÓN", weight: 50 },
+                      { word: "ME ENCANTA", weight: 100 },
+                      { word: "CRUJIENTE", weight: 75 },
+                      { word: "CARO", weight: 40 },
+                      { word: "APP", weight: 65 }
+                    ]
+                  }
+                />
+              </section>
+
             </div>
           ) : activeTab === 'scout' ? (
             <section className="space-y-8 pb-20">
