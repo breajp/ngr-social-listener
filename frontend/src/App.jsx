@@ -749,6 +749,7 @@ const SettingsView = ({ brandsStatus }) => (
             <thead className="sticky top-0 bg-[#0a0a0a] z-10 shadow-sm">
               <tr className="border-b border-white/5">
                 <th className="py-4 text-[9px] font-black uppercase tracking-widest text-white/20">Marca / Entidad</th>
+                <th className="py-4 text-[9px] font-black uppercase tracking-widest text-white/20">Plataforma</th>
                 <th className="py-4 text-[9px] font-black uppercase tracking-widest text-white/20">Handle / Perfil</th>
                 <th className="py-4 text-[9px] font-black uppercase tracking-widest text-white/20">Categoría</th>
                 <th className="py-4 text-[9px] font-black uppercase tracking-widest text-white/20 text-center">Último Scan</th>
@@ -778,7 +779,11 @@ const SettingsView = ({ brandsStatus }) => (
                   <tr key={i} className="group hover:bg-white/[0.01] transition-colors border-b border-white/[0.02]">
                     <td className="py-4 text-xs font-black uppercase italic">
                       {row.brand}
-                      <span className="block text-[8px] font-bold text-white/30 uppercase mt-0.5">{row.platform}</span>
+                    </td>
+                    <td className="py-4">
+                      <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 bg-white/5 border border-white/10 rounded-md text-white/60">
+                        {row.platform}
+                      </span>
                     </td>
                     <td className="py-4 text-[10px] font-medium text-accent-orange italic">{row.handle}</td>
                     <td className="py-4">
