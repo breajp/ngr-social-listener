@@ -353,45 +353,68 @@ const LandingPage = ({ onEnter }) => (
 const CyberWordCloud = ({ words }) => {
   if (!words || !words.length) return null;
 
-  // Calculate max weight for linear interpolation
   const maxWeight = Math.max(...words.map(w => w.weight || 10));
   const minWeight = Math.min(...words.map(w => w.weight || 10));
 
-  // We'll map weights to font sizes from 12px to 48px
   const getFontSize = (weight) => {
-    if (maxWeight === minWeight) return 24;
-    return 12 + ((weight - minWeight) / (maxWeight - minWeight)) * 48; // max 60px
+    if (maxWeight === minWeight) return 32;
+    return 16 + ((weight - minWeight) / (maxWeight - minWeight)) * 64; // up to 80px
   };
 
-  // Assign neon colors from our palette
-  const colors = ['text-white', 'text-accent-lemon', 'text-accent-orange', 'text-white/60', 'text-accent-blue', 'text-accent-pink', 'text-white/40'];
+  const getFontWeight = (ratio) => {
+    if (ratio > 0.8) return 'font-black';
+    if (ratio > 0.5) return 'font-extrabold';
+    if (ratio > 0.3) return 'font-bold';
+    return 'font-medium';
+  };
+
+  const colors = [
+    'text-white',
+    'text-accent-lemon',
+    'text-white/90',
+    'text-accent-orange',
+    'text-white/70',
+    'text-accent-blue',
+    'text-accent-pink',
+    'text-white/50'
+  ];
 
   return (
-    <div className="pwa-card p-8 bg-white/[0.02] border-white/5 space-y-6 flex flex-col items-center justify-center min-h-[350px] relative overflow-hidden group">
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] bg-accent-blue/10 blur-[120px] rounded-full group-hover:bg-accent-blue/20 transition-all duration-1000" />
+    <div className="pwa-card bg-white/[0.02] border-white/5 flex flex-col items-center justify-center min-h-[450px] relative overflow-hidden group w-full">
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-accent-blue/5 blur-[150px] rounded-full group-hover:bg-accent-blue/10 transition-all duration-1000" />
       <div className="absolute top-6 left-6 flex items-center gap-2 z-10">
         <div className="w-1.5 h-1.5 bg-accent-blue rounded-full animate-pulse" />
         <h3 className="text-[10px] font-black uppercase text-white/40 tracking-widest">Nube de Conversación</h3>
       </div>
 
-      <div className="relative z-10 flex flex-wrap justify-center items-center gap-x-6 gap-y-4 max-w-3xl text-center px-4 pt-8">
-        {words.map((w, i) => (
-          <motion.span
-            key={i}
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: i * 0.05 }}
-            className={`font-black italic uppercase tracking-tighter hover:scale-110 transition-transform cursor-default ${colors[i % colors.length]}`}
-            style={{
-              fontSize: `${getFontSize(w.weight)}px`,
-              opacity: w.weight > (maxWeight + minWeight) / 2 ? 1 : 0.7,
-              textShadow: w.weight > maxWeight * 0.8 ? '0 0 20px currentColor' : 'none',
-              transform: `rotate(${(Math.random() - 0.5) * 10}deg)`
-            }}
-          >
-            {w.word}
-          </motion.span>
-        ))}
+      <div className="relative z-10 flex flex-wrap justify-center items-baseline gap-x-5 gap-y-3 max-w-4xl text-center px-10 py-16">
+        {words.map((w, i) => {
+          const ratio = (w.weight - minWeight) / (maxWeight - minWeight || 1);
+          // Hacer que algunas palabras secundarias tengan "outline style" (borde blanco, fondo transparente)
+          const isOutline = i % 4 === 0 && ratio < 0.7;
+
+          return (
+            <motion.span
+              key={i}
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.04, duration: 0.8, ease: "easeOut" }}
+              className={`uppercase tracking-tighter transition-all duration-500 hover:text-white hover:scale-105 cursor-default
+                ${getFontWeight(ratio)} ${!isOutline ? colors[i % colors.length] : ''}
+              `}
+              style={{
+                fontSize: `${getFontSize(w.weight)}px`,
+                lineHeight: 0.85, // apretamos el alto de linea para que se vea mas "bloque"
+                color: isOutline ? 'transparent' : undefined,
+                WebkitTextStroke: isOutline ? `1px rgba(255, 255, 255, ${0.3 + ratio * 0.3})` : undefined,
+                opacity: ratio > 0.6 ? 1 : 0.4 + (ratio * 0.6),
+                textShadow: ratio > 0.9 ? '0 0 30px rgba(255,255,255,0.1)' : 'none'
+              }}
+            >
+              {w.word}
+            </motion.span>
+          )
+        })}
       </div>
     </div>
   );
