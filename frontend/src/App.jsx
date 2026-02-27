@@ -357,63 +357,51 @@ const CyberWordCloud = ({ words }) => {
   const maxWeight = Math.max(...words.map(w => w.weight || 10));
   const minWeight = Math.min(...words.map(w => w.weight || 10));
 
-  const getFontSize = (weight) => {
-    if (maxWeight === minWeight) return 32;
-    return 16 + ((weight - minWeight) / (maxWeight - minWeight)) * 64; // up to 80px
-  };
-
-  const getFontWeight = (ratio) => {
-    if (ratio > 0.8) return 'font-black';
-    if (ratio > 0.5) return 'font-extrabold';
-    if (ratio > 0.3) return 'font-bold';
-    return 'font-medium';
-  };
-
-  const colors = [
-    'text-white',
-    'text-accent-lemon',
-    'text-white/90',
-    'text-accent-orange',
-    'text-white/70',
-    'text-accent-blue',
-    'text-accent-pink',
-    'text-white/50'
-  ];
-
   return (
-    <div className="pwa-card bg-white/[0.02] border-white/5 flex flex-col items-center justify-center min-h-[450px] relative overflow-hidden group w-full">
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-accent-blue/5 blur-[150px] rounded-full group-hover:bg-accent-blue/10 transition-all duration-1000" />
+    <div className="pwa-card bg-white/[0.02] border-white/5 flex flex-col items-center justify-center min-h-[400px] relative overflow-hidden group w-full">
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-accent-blue/5 blur-[150px] rounded-full group-hover:bg-accent-blue/10 transition-all duration-1000 pointer-events-none" />
       <div className="absolute top-6 left-6 flex items-center gap-2 z-10">
         <div className="w-1.5 h-1.5 bg-accent-blue rounded-full animate-pulse" />
-        <h3 className="text-[10px] font-black uppercase text-white/40 tracking-widest">Nube de Conversación</h3>
+        <h3 className="text-[10px] font-black uppercase text-white/40 tracking-widest">Nube de Conversación Semántica</h3>
       </div>
 
-      <div className="relative z-10 flex flex-wrap justify-center items-baseline gap-x-5 gap-y-3 max-w-4xl text-center px-10 py-16">
+      <div className="relative z-10 flex flex-wrap justify-center items-center gap-3 max-w-4xl px-8 py-16">
         {words.map((w, i) => {
           const ratio = (w.weight - minWeight) / (maxWeight - minWeight || 1);
-          // Hacer que algunas palabras secundarias tengan "outline style" (borde blanco, fondo transparente)
-          const isOutline = i % 4 === 0 && ratio < 0.7;
+
+          let colorClass = "text-white/60 bg-white/5 border-white/10";
+          let scaleSize = "text-xs px-3 py-1.5";
+
+          if (ratio > 0.8) {
+            const topColors = [
+              "text-accent-lemon bg-accent-lemon/10 border-accent-lemon/30 shadow-[0_0_15px_rgba(204,255,0,0.2)]",
+              "text-accent-pink bg-accent-pink/10 border-accent-pink/30 shadow-[0_0_15px_rgba(255,0,128,0.2)]",
+              "text-accent-orange bg-accent-orange/10 border-accent-orange/30 shadow-[0_0_15px_rgba(255,126,75,0.2)]",
+            ];
+            colorClass = topColors[i % topColors.length];
+            scaleSize = "text-2xl font-black px-6 py-3 uppercase tracking-tighter";
+          } else if (ratio > 0.5) {
+            const midColors = [
+              "text-white bg-white/10 border-white/20",
+              "text-accent-lemon bg-white/5 border-white/10",
+            ];
+            colorClass = midColors[i % midColors.length];
+            scaleSize = "text-lg font-bold px-4 py-2 uppercase tracking-tight";
+          } else if (ratio > 0.3) {
+            scaleSize = "text-sm font-semibold px-4 py-2 uppercase";
+          }
 
           return (
-            <motion.span
+            <motion.div
               key={i}
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.04, duration: 0.8, ease: "easeOut" }}
-              className={`uppercase tracking-tighter transition-all duration-500 hover:text-white hover:scale-105 cursor-default
-                ${getFontWeight(ratio)} ${!isOutline ? colors[i % colors.length] : ''}
-              `}
-              style={{
-                fontSize: `${getFontSize(w.weight)}px`,
-                lineHeight: 0.85, // apretamos el alto de linea para que se vea mas "bloque"
-                color: isOutline ? 'transparent' : undefined,
-                WebkitTextStroke: isOutline ? `1px rgba(255, 255, 255, ${0.3 + ratio * 0.3})` : undefined,
-                opacity: ratio > 0.6 ? 1 : 0.4 + (ratio * 0.6),
-                textShadow: ratio > 0.9 ? '0 0 30px rgba(255,255,255,0.1)' : 'none'
-              }}
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              whileHover={{ scale: 1.05, y: -2 }}
+              transition={{ delay: i * 0.03, duration: 0.4 }}
+              className={`rounded-full border backdrop-blur-sm cursor-default transition-all duration-300 ${colorClass} ${scaleSize}`}
             >
-              {w.word}
-            </motion.span>
+              {w.word} <span className="text-[10px] opacity-40 ml-1 font-medium">{w.weight}</span>
+            </motion.div>
           )
         })}
       </div>
