@@ -9,7 +9,7 @@ class InsightProcessor {
             console.warn("[Processor] No Gemini Key provided, using mock mode.");
         }
         this.genAI = geminiKey ? new GoogleGenerativeAI(geminiKey) : null;
-        this.model = this.genAI ? this.genAI.getGenerativeModel({ model: "gemini-1.5-flash" }) : null;
+        this.model = this.genAI ? this.genAI.getGenerativeModel({ model: "gemini-2.0-flash" }) : null;
     }
 
     async analyzeSentimentAndTrends(comments) {

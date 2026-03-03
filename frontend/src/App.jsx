@@ -774,7 +774,7 @@ const YouTubeSection = () => {
   );
 };
 
-const SettingsView = ({ brandsStatus }) => (
+const SettingsView = ({ brandsStatus, showConfirm, showAlert }) => (
   <section className="space-y-12 pb-20">
     <h1 className="pwa-title text-fg leading-tight">Panel de <br /><span className="text-fg/40">Configuración</span></h1>
 
@@ -821,26 +821,40 @@ const SettingsView = ({ brandsStatus }) => (
           </div>
           <div className="flex gap-4">
             <button
-              onClick={async () => {
+              onClick={() => {
                 const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
-                if (!confirm("Esto generará datos sintéticos realistas para los últimos 7 días. ¿Continuar?")) return;
-                try {
-                  await axios.post(`${API_BASE}/api/admin/seed-history`);
-                  alert("Cold Start completado. El historial de 7 días ya está disponible.");
-                  window.location.reload();
-                } catch (e) {
-                  alert("Error al popular historial.");
-                }
+                showConfirm(
+                  'Cold Start',
+                  'Esto generará datos sintéticos realistas para los últimos 7 días de Bembos TikTok. ¿Continuar?',
+                  async () => {
+                    try {
+                      const res = await axios.post(`${API_BASE}/api/admin/seed-history`);
+                      showAlert('✅ Cold Start Completado', `Se insertaron ${res.data.inserted} días de historial. Total en store: ${res.data.total} registros.`);
+                    } catch (e) {
+                      showAlert('❌ Error', 'No se pudo conectar al servidor. Verificá que el backend esté corriendo en puerto 3001.');
+                    }
+                  }
+                );
               }}
               className="px-6 py-2 bg-fg/5 text-fg/60 border border-fg/10 text-[10px] font-black uppercase italic rounded-full hover:bg-fg/10 transition-all"
             >
               Cold Start: Poblar 7 Días
             </button>
             <button
-              onClick={async () => {
+              onClick={() => {
                 const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
-                alert("Iniciando escaneo masivo de las 10 marcas (Propias + Competencia). Esto tomará un par de minutos en 2do plano.");
-                await axios.post(`${API_BASE}/api/admin/scout-all`);
+                showConfirm(
+                  'Escaneo Masivo',
+                  'Esto iniciará el scraping real de TikTok e Instagram para las 7 marcas monitoreadas. El proceso toma ~5 minutos en segundo plano. ¿Iniciar?',
+                  async () => {
+                    try {
+                      await axios.post(`${API_BASE}/api/admin/scout-all`);
+                      showAlert('🚀 Escaneo Iniciado', 'El scraping está corriendo en 2do plano. Los datos aparecerán en el Dashboard en ~5 minutos.');
+                    } catch (e) {
+                      showAlert('❌ Error', 'No se pudo iniciar el escaneo. Verificá el backend.');
+                    }
+                  }
+                );
               }}
               className="px-6 py-2 bg-accent-lemon text-black font-black text-[10px] uppercase italic rounded-full hover:scale-105 transition-all shadow-[0_0_20px_rgba(152,255,188,0.2)]"
             >
@@ -1146,6 +1160,18 @@ export default function App() {
   const [report, setReport] = useState(null);
   const [theme, setTheme] = useState('dark');
 
+  // ─── MODALES PROPIOS (reemplazan confirm/alert nativos) ───────────────────
+  const [modal, setModal] = useState(null);
+  // modal = { title, message, onConfirm } | null
+
+  const showConfirm = (title, message, onConfirm) =>
+    setModal({ title, message, onConfirm, type: 'confirm' });
+
+  const showAlert = (title, message) =>
+    setModal({ title, message, type: 'alert' });
+
+  const closeModal = () => setModal(null);
+
   React.useEffect(() => {
     const root = window.document.documentElement;
     if (theme === 'light') {
@@ -1350,10 +1376,52 @@ export default function App() {
               historicalData={historicalData}
             />
           ) : (
-            <SettingsView brandsStatus={brandsStatus} />
+            <SettingsView brandsStatus={brandsStatus} showConfirm={showConfirm} showAlert={showAlert} />
           )}
         </main>
       </div>
+
+      {/* ─── MODAL PROPIO (reemplaza confirm/alert nativos) ─────────────────── */}
+      {modal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+          onClick={closeModal}
+        >
+          <div
+            className="pwa-card p-8 max-w-md w-full mx-4 space-y-6 border border-fg/10 shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="space-y-2">
+              <h2 className="text-sm font-black uppercase italic tracking-widest text-fg">
+                {modal.title}
+              </h2>
+              <p className="text-xs text-fg/60 leading-relaxed">
+                {modal.message}
+              </p>
+            </div>
+
+            <div className="flex gap-3 justify-end">
+              {modal.type === 'confirm' && (
+                <button
+                  onClick={closeModal}
+                  className="px-5 py-2 text-[10px] font-black uppercase italic bg-fg/5 border border-fg/10 rounded-full hover:bg-fg/10 transition-all text-fg/60"
+                >
+                  Cancelar
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  if (modal.onConfirm) modal.onConfirm();
+                  closeModal();
+                }}
+                className="px-5 py-2 text-[10px] font-black uppercase italic bg-accent-lemon text-black rounded-full hover:scale-105 transition-all shadow-[0_0_20px_rgba(152,255,188,0.2)]"
+              >
+                {modal.type === 'confirm' ? 'Confirmar' : 'OK'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
