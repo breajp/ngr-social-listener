@@ -17,8 +17,5 @@ frontend/dist
 # OS
 .DS_Store
 
-# Scraped data — no subir al repo (datos de usuarios reales)
-backend/src/data/store.json
-
 # Lock files root
 package-lock.json
