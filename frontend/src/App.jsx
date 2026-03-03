@@ -878,16 +878,14 @@ const SettingsView = ({ brandsStatus, showConfirm, showAlert }) => (
             </thead>
             <tbody className="divide-y divide-fg/[0.02]">
               {[
-                { brand: 'Bembos', platform: 'TikTok/IG', handle: '@bembos_peru', type: 'Owned', status: 'Active' },
-                { brand: 'Papa Johns', platform: 'TikTok/IG', handle: '@papajohns_peru', type: 'Owned', status: 'Active' },
-                { brand: 'Popeyes', platform: 'TikTok', handle: '@popeyesperu', type: 'Owned', status: 'Active' },
+                { brand: 'Bembos', platform: 'TikTok', handle: '@bembos.oficial', type: 'Owned', status: 'Active' },
+                { brand: 'Papa Johns', platform: 'TikTok', handle: '@papajohnsperu', type: 'Owned', status: 'Active' },
+                { brand: 'Popeyes', platform: 'TikTok', handle: '@popeyesperuoficial', type: 'Owned', status: 'Active' },
                 { brand: 'China Wok', platform: 'TikTok', handle: '@chinawokperu', type: 'Owned', status: 'Active' },
-                { brand: 'Dunkin', platform: 'Instagram', handle: '@dunkin_peru', type: 'Owned', status: 'Active' },
-                { brand: 'McDonalds', platform: 'TikTok', handle: '@mcdonalds_peru', type: 'Competitor', status: 'Monitored' },
+                { brand: 'Dunkin Donuts', platform: 'Instagram', handle: '@dunkindonutsperu', type: 'Owned', status: 'Active' },
+                { brand: 'McDonalds', platform: 'TikTok', handle: '@mcdonaldsperu', type: 'Competitor', status: 'Monitored' },
                 { brand: 'Burger King', platform: 'TikTok', handle: '@burgerking_peru', type: 'Competitor', status: 'Monitored' },
                 { brand: 'KFC', platform: 'TikTok', handle: '@kfcperu', type: 'Competitor', status: 'Monitored' },
-                { brand: 'Pizza Hut', platform: 'Instagram', handle: '@pizzahutperu', type: 'Competitor', status: 'Monitored' },
-                { brand: 'Starbucks', platform: 'Instagram', handle: '@starbuckspecu', type: 'Competitor', status: 'Monitored' }
               ].map((row, i) => {
                 const statusData = brandsStatus[row.brand];
                 const hasData = statusData && statusData.count > 0;
@@ -935,7 +933,7 @@ const SettingsView = ({ brandsStatus, showConfirm, showAlert }) => (
           <div className="flex gap-4">
             <div className="flex items-center gap-2 px-3 py-1.5 bg-accent-lemon/10 rounded-lg">
               <div className="w-1.5 h-1.5 bg-accent-lemon rounded-full animate-pulse" />
-              <span className="text-[9px] font-black uppercase text-accent-lemon tracking-widest">Gemini 1.5 Flash Active</span>
+              <span className="text-[9px] font-black uppercase text-accent-lemon tracking-widest">Gemini 2.0 Flash Active</span>
             </div>
             <div className="flex items-center gap-2 px-3 py-1.5 bg-accent-orange/10 rounded-lg">
               <div className="w-1.5 h-1.5 bg-accent-orange rounded-full" />

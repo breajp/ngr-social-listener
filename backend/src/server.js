@@ -290,20 +290,31 @@ app.post('/api/admin/scout-all', async (req, res) => {
         { brand: 'McDonalds', platform: 'tiktok', handle: 'mcdonaldsperu' },
         { brand: 'Burger King', platform: 'tiktok', handle: 'burgerking_peru' },
         { brand: 'KFC', platform: 'tiktok', handle: 'kfcperu' },
+        { brand: 'Popeyes', platform: 'tiktok', handle: 'popeyesperuoficial' },
+        { brand: 'China Wok', platform: 'tiktok', handle: 'chinawokperu' },
+        { brand: 'Dunkin Donuts', platform: 'instagram', handle: 'dunkindonutsperu' },
     ];
 
     for (const b of brands) {
         try {
-            const actorId = "clockworks~tiktok-comments-scraper";
-
-            // El actor acepta `profiles` con handles (sin @) para scrapear comentarios
-            // de los últimos videos de un perfil
-            const input = {
-                "profiles": [b.handle],
-                "maxItems": 20,
-                "shouldDownloadVideos": false,
-                "shouldDownloadCovers": false
-            };
+            // Seleccionar actor e input según plataforma
+            let actorId, input;
+            if (b.platform === 'instagram') {
+                actorId = "apify~instagram-comment-scraper";
+                input = {
+                    "directUrls": [`https://www.instagram.com/${b.handle}/`],
+                    "resultsLimit": 20
+                };
+            } else {
+                // TikTok por defecto
+                actorId = "clockworks~tiktok-comments-scraper";
+                input = {
+                    "profiles": [b.handle],
+                    "maxItems": 20,
+                    "shouldDownloadVideos": false,
+                    "shouldDownloadCovers": false
+                };
+            }
 
             console.log(`[Scout-All] Lanzando scraper para ${b.brand} (${b.platform})...`);
             const run = await apify.launchScraper(actorId, input);
