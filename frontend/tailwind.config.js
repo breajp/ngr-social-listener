@@ -1,5 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 export default {
+  darkMode: 'class',
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
@@ -13,7 +14,8 @@ export default {
           pink: "#ff0080",
           lemon: "#ccff00",
         },
-        bg: "#050505",
+        bg: "var(--bg)",
+        fg: "var(--fg)",
       },
       animation: {
         'floating': 'floating 20s infinite alternate',

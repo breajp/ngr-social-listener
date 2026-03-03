@@ -13,6 +13,13 @@
   --glass-border: rgba(255, 255, 255, 0.08);
 }
 
+.light {
+  --bg: #f9f9fb;
+  --fg: #121212;
+  --glass: rgba(0, 0, 0, 0.02);
+  --glass-border: rgba(0, 0, 0, 0.06);
+}
+
 body {
   background-color: var(--bg);
   color: var(--fg);
@@ -27,8 +34,9 @@ body {
     position: fixed;
     inset: 0;
     z-index: -1;
-    background: #050505;
+    background: var(--bg);
     overflow: hidden;
+    transition: background-color 0.5s ease;
   }
 
   .mesh-orb-1 {
@@ -66,15 +74,29 @@ body {
   }
 
   .pwa-card {
-    @apply bg-white/[0.03] backdrop-blur-[40px] border border-white/[0.08] rounded-[32px] overflow-hidden transition-all duration-500;
+    background-color: var(--glass);
+    backdrop-filter: blur(40px);
+    border: 1px solid var(--glass-border);
+    @apply rounded-[32px] overflow-hidden transition-all duration-500;
   }
 
   .pwa-card:hover {
-    @apply border-white/20 bg-white/[0.06] -translate-y-1;
+    border-color: rgba(255, 255, 255, 0.2);
+    background-color: rgba(255, 255, 255, 0.06);
+    transform: translateY(-4px);
+  }
+
+  .light .pwa-card:hover {
+    border-color: rgba(0, 0, 0, 0.1);
+    background-color: rgba(0, 0, 0, 0.04);
   }
 
   .pwa-btn {
-    @apply bg-white text-black font-black uppercase tracking-widest text-[10px] px-8 py-4 rounded-full transition-all hover:scale-105 active:scale-95 flex items-center gap-2;
+    @apply bg-black text-white dark:bg-white dark:text-black font-black uppercase tracking-widest text-[10px] px-8 py-4 rounded-full transition-all hover:scale-105 active:scale-95 flex items-center gap-2;
+  }
+
+  .light .pwa-btn {
+    @apply bg-black text-white rounded-full;
   }
 
   .pwa-title {

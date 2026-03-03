@@ -1,6 +1,18 @@
+# Dependencies
 node_modules
-.env
-dist
-.DS_Store
-frontend/dist
 frontend/node_modules
+backend/functions/node_modules
+
+# Build output
+dist
+frontend/dist
+
+# Environment secrets
+.env
+*.env.local
+
+# Firebase cache
+.firebase
+
+# OS
+.DS_Store

@@ -16,9 +16,12 @@ app.use(express.json());
 
 // Logging middleware
 app.use((req, res, next) => {
-    console.log(`[Request] ${req.method} ${req.path}`);
+    console.log(`[Request] ${req.method} ${req.path} | OriginalUrl: ${req.originalUrl}`);
     next();
 });
+
+app.get('/api/ping', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
+app.get('/ping', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
 
 const APIFY_KEY = process.env.APIFY_API_KEY || "";
 const GEMINI_KEY = process.env.GEMINI_API_KEY || "";
@@ -191,6 +194,9 @@ registerRoute('post', '/api/admin/scout-all', async (req, res) => {
 
         res.json({ status: "initiated", message: `Iniciando escaneo de ${targets.length} perfiles en segundo plano.`, targets: targets.map(t => `${t.brand} (${t.platform})`) });
     } catch (e) {
+        if (e.message.includes("Cloud Firestore API has not been used")) {
+            return res.status(500).json({ error: "Firestore deshabilitado.", instruction: "Habilite Firestore para activar el escaneo estratégico." });
+        }
         res.status(500).json({ error: e.message });
     }
 });
@@ -245,6 +251,9 @@ registerRoute('post', '/api/admin/seed-history', async (req, res) => {
         }
         res.json({ success: true, message: "Historial de 7 días generado correctamente." });
     } catch (e) {
+        if (e.message.includes("Cloud Firestore API has not been used")) {
+            return res.status(500).json({ error: "Firestore deshabilitado.", instruction: "Debe activar Firestore en la consola de Firebase." });
+        }
         res.status(500).json({ error: e.message });
     }
 });
@@ -278,17 +287,57 @@ registerRoute('get', '/api/admin/brands-status', async (req, res) => {
 
         res.json(statusMap);
     } catch (error) {
+        console.error("[Brands Status Error]", error);
+        if (error.message.includes("Cloud Firestore API has not been used")) {
+            return res.status(500).json({
+                error: "Firestore is not enabled in this project.",
+                instruction: "Por favor, activa Firestore en el Firebase Console (Build > Firestore Database) para habilitar el rastreo real."
+            });
+        }
         res.status(500).json({ error: error.message });
     }
 });
 
 // Mock de data de Cuántico (Insights de marcas propias)
-registerRoute('get', '/api/cuantico/summary', (req, res) => {
-    res.json([
-        { brand: 'Bembos', sentiment: 'Favorable', text: 'Tendencia positiva en salsa parrillera', date: 'Hoy', pos: 85, neu: 10, neg: 5 },
-        { brand: 'Popeyes', sentiment: 'Neutral', text: 'Algunas quejas por demora en delivery', date: 'Ayer', pos: 30, neu: 40, neg: 30 },
-        { brand: 'China Wok', sentiment: 'Muy Favorable', text: 'Nueva promo viral en TikTok impulsando ventas', date: 'Hoy', pos: 92, neu: 5, neg: 3 }
-    ]);
+registerRoute('get', '/api/cuantico/summary', async (req, res) => {
+    try {
+        const db = admin.firestore();
+        const brands = ['Bembos', 'China Wok', 'Popeyes'];
+        const summaries = [];
+
+        for (const brand of brands) {
+            const snapshot = await db.collection('scans')
+                .where('brand', '==', brand)
+                .orderBy('timestamp', 'desc')
+                .limit(1)
+                .get();
+
+            if (!snapshot.empty) {
+                const data = snapshot.docs[0].data();
+                summaries.push({
+                    brand: data.brand,
+                    sentiment: data.sentiment?.positive > 70 ? 'Favorable' : (data.sentiment?.negative > 30 ? 'Crítico' : 'Neutral'),
+                    text: data.summary || "Sin resumen disponible",
+                    date: 'Último Scan',
+                    pos: data.sentiment?.positive || 0,
+                    neu: data.sentiment?.neutral || 0,
+                    neg: data.sentiment?.negative || 0
+                });
+            } else {
+                // Fallback for brands without scans yet
+                summaries.push({
+                    brand,
+                    sentiment: 'Pendiente',
+                    text: 'Esperando primer escaneo programado...',
+                    date: 'N/A',
+                    pos: 0, neu: 0, neg: 0
+                });
+            }
+        }
+        res.json(summaries);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 // Admin Route to seed 7 days of Bembos Data
