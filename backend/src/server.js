@@ -178,8 +178,32 @@ app.get('/api/admin/brands-status', (req, res) => {
     res.json(getBrandsStatus());
 });
 
-// Reports — reporte semanal generado dinámicamente
-app.get('/api/reports', (req, res) => {
+// Reports — reporte semanal: Gemini si hay datos, fallback demo si no
+app.get('/api/reports', async (req, res) => {
+    if (scanStore.length === 0) {
+        // Sin datos: devolver demo con flag para que el frontend lo indique
+        return res.json({
+            _isDemo: true,
+            executiveBrief: "Sin datos aún. Ejecutá un Cold Start o un Escaneo Masivo para generar el informe real.",
+            brandPerformance: [{ brand: 'Bembos', status: 'Pending', keyFinding: 'Esperando primer scan.' }],
+            topStrategicRisk: 'No hay datos suficientes para evaluar riesgos.',
+            nextSteps: ['Ejecutar Cold Start', 'Ejecutar Escaneo Masivo']
+        });
+    }
+
+    // Con datos reales: intentar generar con Gemini, si falla usar buildReport()
+    try {
+        const last7 = scanStore.slice(-70); // hasta 70 entries (10 marcas x 7 días)
+        const summaries = last7.map(e => ({
+            brand: e.brand, platform: e.platform,
+            summary: e.summary, sentiment: e.sentiment
+        }));
+        const geminiReport = await processor.generateWeeklyExecutiveBriefing(summaries);
+        if (geminiReport) return res.json(geminiReport);
+    } catch (e) {
+        console.warn('[Reports] Gemini falló, usando buildReport() estático:', e.message);
+    }
+
     res.json(buildReport());
 });
 

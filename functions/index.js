@@ -1,455 +1,612 @@
-const functions = require('firebase-functions/v2/https');
-const { setGlobalOptions } = require('firebase-functions/v2');
+const { onRequest } = require('firebase-functions/v2/https');
+const { onSchedule } = require('firebase-functions/v2/scheduler');
 const admin = require('firebase-admin');
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const InsightProcessor = require('./processor');
+const YoutubeProcessor = require('./youtube_processor');
 
-// ─── INIT ────────────────────────────────────────────────────────────────────
-setGlobalOptions({ timeoutSeconds: 540, memory: '512MiB' });
+require('dotenv').config();
 admin.initializeApp();
-const db = admin.firestore();
-const COLLECTION = 'scan_entries';
 
 const app = express();
 app.use(cors({ origin: true }));
 app.use(express.json());
 
-// Keys desde .env en la carpeta functions/ (auto-cargado por Firebase)
-const APIFY_KEY = process.env.APIFY_API_KEY || '';
-const GEMINI_KEY = process.env.GEMINI_API_KEY || '';
+// Logging middleware
+app.use((req, res, next) => {
+    console.log(`[Request] ${req.method} ${req.path} | OriginalUrl: ${req.originalUrl}`);
+    next();
+});
 
-// ─── APIFY CONNECTOR ─────────────────────────────────────────────────────────
-async function launchScraper(actorId, input) {
-    console.log(`[Apify] Iniciando scraper ${actorId}...`);
-    const response = await axios.post(
-        `https://api.apify.com/v2/acts/${actorId}/runs?token=${APIFY_KEY}`,
-        input
-    );
-    return response.data.data;
-}
+app.get('/api/ping', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
+app.get('/ping', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
 
-async function getResults(datasetId) {
-    const response = await axios.get(
-        `https://api.apify.com/v2/datasets/${datasetId}/items?token=${APIFY_KEY}`
-    );
-    return response.data;
-}
+const APIFY_KEY = process.env.APIFY_API_KEY || "";
+const GEMINI_KEY = process.env.GEMINI_API_KEY || "";
 
-// ─── GEMINI PROCESSOR ────────────────────────────────────────────────────────
-async function analyzeSentimentAndTrends(comments) {
-    if (!GEMINI_KEY || !comments || comments.length === 0) {
-        return {
-            sentiment: { positive: 0, neutral: 100, negative: 0 },
-            topTopics: ['Sin datos'],
-            summary: 'No hay comentarios suficientes o falta API Key.'
-        };
+console.log("[Backend] Gemini Key length:", GEMINI_KEY.length);
+
+const processor = new InsightProcessor();
+const ytProcessor = new YoutubeProcessor();
+
+// Helper for dual routes (with and without /api prefix)
+const registerRoute = (method, path, handler) => {
+    app[method](path, handler);
+    if (path.startsWith('/api')) {
+        app[method](path.replace('/api', ''), handler);
     }
+};
 
-    const genAI = new GoogleGenerativeAI(GEMINI_KEY);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-
-    const prompt = `
-Analiza los siguientes comentarios de redes sociales sobre una marca de comida rápida:
-${comments.join('\n---\n')}
-
-Devuelve un objeto JSON con esta estructura exacta:
-{
-  "sentiment": { "positive": porcentaje, "neutral": porcentaje, "negative": porcentaje },
-  "topTopics": ["tema1", "tema2", "tema3"],
-  "summary": "Resumen ejecutivo de 2 oraciones sobre lo que dice la gente"
-}
-IMPORTANTE: Solo responde con el JSON puro.
-`;
-
+registerRoute('post', '/api/youtube/analyze', async (req, res) => {
+    const { videoUrl } = req.body;
     try {
-        const result = await model.generateContent(prompt);
-        const text = result.response.text();
-        const cleanText = text.replace(/```json|```/g, '').trim();
-        return JSON.parse(cleanText);
+        console.log(`[Youtube] Analizando: ${videoUrl}`);
+        let videoId = "";
+        if (videoUrl.includes('v=')) videoId = videoUrl.split('v=')[1]?.split('&')[0];
+        else if (videoUrl.includes('youtu.be/')) videoId = videoUrl.split('youtu.be/')[1]?.split('?')[0];
+
+        if (!videoId) throw new Error("URL de YouTube no válida. Use formato https://www.youtube.com/watch?v=XXXX");
+
+        const comments = await ytProcessor.getComments(videoId, process.env.GEMINI_API_KEY || GEMINI_KEY);
+        const analysis = await ytProcessor.analyzeSentimentInBulk(comments, process.env.GEMINI_API_KEY || GEMINI_KEY);
+
+        res.json({
+            status: "success",
+            videoId,
+            results: analysis,
+            summary: `Analizados ${analysis.length} comentarios con Google NL API.`
+        });
     } catch (e) {
-        console.error('[Gemini] Error:', e.message);
-        return {
-            sentiment: { positive: 33, neutral: 34, negative: 33 },
-            topTopics: ['Error en análisis'],
-            summary: 'Hubo un problema procesando los comentarios con la IA.'
-        };
+        console.error("[Youtube Route Error]", e);
+        res.status(500).json({ error: e.message });
     }
-}
+});
 
-// ─── FIRESTORE HELPERS ───────────────────────────────────────────────────────
-async function getAllEntries() {
-    const snapshot = await db.collection(COLLECTION).orderBy('timestamp', 'asc').get();
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-}
-
-async function addEntry(entry) {
-    const ref = await db.collection(COLLECTION).add(entry);
-    console.log(`[Firestore] Entrada guardada: ${ref.id} (${entry.brand})`);
-    return ref.id;
-}
-
-async function clearAllEntries() {
-    const snapshot = await db.collection(COLLECTION).get();
-    const batch = db.batch();
-    snapshot.docs.forEach(doc => batch.delete(doc.ref));
-    await batch.commit();
-    console.log(`[Firestore] ${snapshot.size} entradas eliminadas.`);
-}
-
-// ─── HELPERS DE LÓGICA ───────────────────────────────────────────────────────
-function getBrandsStatus(scanStore) {
-    const status = {};
-    for (const entry of scanStore) {
-        if (!status[entry.brand]) {
-            status[entry.brand] = { count: 0, lastUpdated: null };
-        }
-        status[entry.brand].count += 1;
-        const t = new Date(entry.timestamp);
-        if (!status[entry.brand].lastUpdated || t > new Date(status[entry.brand].lastUpdated)) {
-            status[entry.brand].lastUpdated = entry.timestamp;
-        }
-    }
-    return status;
-}
-
-function buildReport(scanStore) {
-    const byBrand = {};
-    for (const e of scanStore) {
-        if (!byBrand[e.brand]) byBrand[e.brand] = [];
-        byBrand[e.brand].push(e);
-    }
-    const brandPerf = Object.entries(byBrand).map(([brand, entries]) => {
-        const avgPos = Math.round(entries.reduce((a, b) => a + (b.sentiment?.positive || 0), 0) / entries.length);
-        return {
-            brand,
-            status: avgPos >= 80 ? 'Growing' : avgPos >= 60 ? 'Stable' : 'At Risk',
-            keyFinding: `Sentimiento positivo promedio: ${avgPos}% (${entries.length} scans).`
-        };
-    });
-    return {
-        executiveBrief: `Performance sólida en plataformas digitales. Engagement digital correlaciona positivamente con el flujo en locales físicos.`,
-        brandPerformance: brandPerf.length > 0 ? brandPerf : [
-            { brand: 'Bembos', status: 'Growing', keyFinding: 'Sin datos aún — ejecutá Cold Start.' }
-        ],
-        topStrategicRisk: 'Posible saturación de promociones en canal digital.',
-        nextSteps: ['Optimizar pauta en TikTok', 'Reforzar stock de salsas en zona sur']
-    };
-}
-
-// ─── MARCAS CONFIGURADAS ─────────────────────────────────────────────────────
-const BRANDS = [
-    { brand: 'Bembos', platform: 'tiktok', handle: 'bembos.oficial' },
-    { brand: 'Papa Johns', platform: 'tiktok', handle: 'papajohnsperu' },
-    { brand: 'McDonalds', platform: 'tiktok', handle: 'mcdonaldsperu' },
-    { brand: 'Burger King', platform: 'tiktok', handle: 'burgerking_peru' },
-    { brand: 'KFC', platform: 'tiktok', handle: 'kfcperu' },
-    { brand: 'Popeyes', platform: 'tiktok', handle: 'popeyesperuoficial' },
-    { brand: 'China Wok', platform: 'tiktok', handle: 'chinawokperu' },
-    { brand: 'Dunkin Donuts', platform: 'instagram', handle: 'dunkindonutsperu' },
-];
-
-// ─── ROUTES: SCOUT BOT ───────────────────────────────────────────────────────
-
-app.post('/api/scout', async (req, res) => {
+registerRoute('post', '/api/scout', async (req, res) => {
     const { url, platform } = req.body;
-    try {
-        let actorId = 'clockworks~tiktok-comments-scraper';
-        let input = { commentsByPostUrls: [{ url }], maxCommentsPerPost: 20 };
 
-        if (platform === 'instagram') {
-            actorId = 'jaroslavsemanko~instagram-comment-scraper';
-            input = { directUrls: [url], resultsLimit: 20 };
+    // MODO MOCK para no gastar créditos de Apify
+    if (url.includes('test-mode') || url.includes('mock-data')) {
+        const datasetId = `mock - ${Date.now()}`;
+        return res.json({ status: 'processing', datasetId, isMock: true });
+    }
+
+    try {
+        let actorId = "";
+        let input = {};
+
+        if (platform === 'tiktok') {
+            actorId = "clockworks~tiktok-comments-scraper";
+            input = { "postURLs": [url], "commentsPerPost": 20, "maxRepliesPerComment": 0 };
+        } else if (platform === 'instagram') {
+            actorId = "jaroslavsemanko~instagram-comment-scraper";
+            input = { "directUrls": [url], "resultsLimit": 20 };
+        } else if (platform === 'google-maps') {
+            actorId = "compass~google-maps-reviews-scraper";
+            input = { "queries": [url], "maxReviews": 20 };
+        } else if (platform === 'facebook') {
+            actorId = "apify~facebook-comments-scraper";
+            input = { "postUrls": [url], "maxComments": 20 };
         }
 
-        const run = await launchScraper(actorId, input);
-        res.json({ status: 'processing', runId: run.id, datasetId: run.defaultDatasetId });
+        const response = await axios.post(`https://api.apify.com/v2/acts/${actorId}/runs?token=${APIFY_KEY}`, input);
+        const datasetId = response.data.data.defaultDatasetId;
+
+        res.json({ status: 'processing', datasetId });
     } catch (error) {
+        console.error("[Scout Error]", error);
         res.status(500).json({ error: error.message });
     }
 });
 
-app.get('/api/insights/:datasetId', async (req, res) => {
-    try {
-        const comments = await getResults(req.params.datasetId);
-        const texts = comments.map(c => c.text || c.commentText || c.comment || '').filter(Boolean);
+registerRoute('get', '/api/insights/:datasetId', async (req, res) => {
+    const { datasetId } = req.params;
 
-        let insights = { sentiment: { positive: 50, neutral: 45, negative: 5 }, topTopics: [], summary: 'Sin análisis aún.' };
-        if (texts.length > 0) {
-            insights = await analyzeSentimentAndTrends(texts);
+    try {
+        let comments = [];
+        let isMock = datasetId.startsWith('mock-');
+
+        if (isMock) {
+            comments = [
+                { text: "Me encanta la nueva hamburguesa de Bembos!", author: "@comidista" },
+                { text: "La promo de Papa Johns demoró una hora, mal ahí.", author: "@hambriento1" },
+                { text: "El personal de NGR siempre es muy amable.", author: "@fan_fb" },
+                { text: "Rico pero un poco caro", author: "@lima_user" },
+                { text: "Excelente atención en Popeyes", author: "@fastfood_fan" }
+            ];
+        } else {
+            const response = await axios.get(`https://api.apify.com/v2/datasets/${datasetId}/items?token=${APIFY_KEY}`);
+            comments = response.data.map(item => ({
+                text: item.text || item.textDescription || item.reviewText || "",
+                author: item.uniqueId || item.ownerUsername || item.name || "Usuario"
+            })).filter(c => c.text);
         }
 
-        res.json({ comments: comments.length, comments_raw: comments, ...insights });
+        const insights = await processor.analyzeSentimentAndTrends(comments.map(c => c.text));
+
+        // Guardar en Firestore para el historial
+        const scanData = {
+            id: datasetId,
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            platform: isMock ? 'mock' : 'social',
+            commentsCount: comments.length,
+            ...insights
+        };
+
+        await admin.firestore().collection('scans').doc(datasetId).set(scanData);
+
+        res.json({
+            comments: comments.length,
+            comments_raw: comments,
+            ...insights,
+            isMock
+        });
     } catch (error) {
+        console.error("[Insights Error]", error);
         res.status(500).json({ error: error.message });
     }
 });
 
-app.get('/api/cuantico/summary', (req, res) => {
-    res.json([
-        { brand: 'Bembos', sentiment: 'Favorable', alert: 'Tendencia positiva en salsa parrillera', date: 'Hoy' },
-        { brand: 'Popeyes', sentiment: 'Neutral', alert: 'Quejas por demora en delivery', date: 'Ayer' },
-        { brand: 'China Wok', sentiment: 'Muy Favorable', alert: 'Nueva promo viral en TikTok', date: 'Hoy' }
-    ]);
-});
-
-// ─── ROUTES: DATOS ───────────────────────────────────────────────────────────
-
-app.get('/api/history', async (req, res) => {
+registerRoute('get', '/api/history', async (req, res) => {
     try {
-        const allEntries = await getAllEntries();
-        const history = allEntries.slice(-20).reverse().map(e => ({
-            brand: e.brand,
-            platform: e.platform,
-            timestamp: e.timestamp,
-            sentiment: e.sentiment,
-            commentsCount: e.commentsCount,
-            topTopics: e.topTopics,
-            summary: e.summary
-        }));
+        const snapshot = await admin.firestore().collection('scans')
+            .orderBy('timestamp', 'desc')
+            .limit(10)
+            .get();
+
+        const history = [];
+        snapshot.forEach(doc => history.push(doc.data()));
         res.json(history);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Admin route to trigger full scouting manually
+registerRoute('post', '/api/admin/scout-all', async (req, res) => {
+    try {
+        console.log("[Admin] Manual multi-brand scout triggered.");
+        const targets = [
+            { brand: 'Bembos', platform: 'tiktok', url: 'https://www.tiktok.com/@bembos_peru', type: 'owned' },
+            { brand: 'Bembos', platform: 'instagram', url: 'https://www.instagram.com/bembos_peru/', type: 'owned' },
+            { brand: 'Papa Johns', platform: 'tiktok', url: 'https://www.tiktok.com/@papajohns_peru', type: 'owned' },
+            { brand: 'Papa Johns', platform: 'instagram', url: 'https://www.instagram.com/papajohns_peru/', type: 'owned' },
+            { brand: 'Dunkin', platform: 'instagram', url: 'https://www.instagram.com/dunkin_peru/', type: 'owned' },
+            { brand: 'Popeyes', platform: 'tiktok', url: 'https://www.tiktok.com/@popeyesperu', type: 'owned' },
+            { brand: 'China Wok', platform: 'tiktok', url: 'https://www.tiktok.com/@chinawokperu', type: 'owned' },
+            { brand: 'McDonalds', platform: 'tiktok', url: 'https://www.tiktok.com/@mcdonalds_peru', type: 'competitor' },
+            { brand: 'Burger King', platform: 'tiktok', url: 'https://www.tiktok.com/@burgerking_peru', type: 'competitor' },
+            { brand: 'KFC', platform: 'tiktok', url: 'https://www.tiktok.com/@kfcperu', type: 'competitor' },
+            { brand: 'Pizza Hut', platform: 'instagram', url: 'https://www.instagram.com/pizzahutperu/', type: 'competitor' },
+            { brand: 'Starbucks', platform: 'instagram', url: 'https://www.instagram.com/starbuckspecu/', type: 'competitor' }
+        ];
+
+        // Trigger in background to avoid HTTP timeout
+        const db = admin.firestore();
+        const processor = new InsightProcessor();
+        const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+        performScouting(targets, db, processor, yesterday).catch(err => {
+            console.error("[scout-all async error]", err);
+        });
+
+        res.json({ status: "initiated", message: `Iniciando escaneo de ${targets.length} perfiles en segundo plano.`, targets: targets.map(t => `${t.brand} (${t.platform})`) });
+    } catch (e) {
+        if (e.message.includes("Cloud Firestore API has not been used")) {
+            return res.status(500).json({ error: "Firestore deshabilitado.", instruction: "Habilite Firestore para activar el escaneo estratégico." });
+        }
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Cold Start: Seed 7 days of historical data
+registerRoute('post', '/api/admin/seed-history', async (req, res) => {
+    try {
+        console.log("[Admin] Seeding 7-day history for all brands...");
+        const brands = [
+            'Bembos', 'Papa Johns', 'Popeyes', 'China Wok', 'Dunkin',
+            'McDonalds', 'Burger King', 'KFC', 'Pizza Hut', 'Starbucks'
+        ];
+
+        const now = Date.now();
+        const dayMs = 24 * 60 * 60 * 1000;
+        const db = admin.firestore();
+
+        for (let i = 0; i < 7; i++) {
+            const targetDate = new Date(now - i * dayMs);
+            const dateStr = targetDate.toISOString().split('T')[0];
+
+            for (const brand of brands) {
+                const isOwned = ['Bembos', 'Papa Johns', 'Popeyes', 'China Wok', 'Dunkin'].includes(brand);
+                const basePos = isOwned ? 65 : 55;
+                const variance = Math.random() * 15;
+
+                const sentiment = {
+                    positive: Math.round(basePos + variance),
+                    neutral: Math.round(20 + Math.random() * 10),
+                    negative: 0
+                };
+                sentiment.negative = 100 - sentiment.positive - sentiment.neutral;
+
+                const summary = {
+                    brand,
+                    date: dateStr,
+                    sentiment,
+                    volume: Math.round(150 + Math.random() * 200),
+                    top_themes: isOwned ? ['Calidad', 'Servicio', 'Promociones'] : ['Competencia', 'Precios', 'Nuevos Productos'],
+                    brief: `Análisis histórico generado para ${brand}. Fecha: ${dateStr}.`,
+                    alerts: sentiment.negative > 20 ? [`Alerta de sentimiento en ${brand}`] : []
+                };
+
+                await db.collection('scans').add({
+                    brand,
+                    platform: 'aggregate',
+                    summary,
+                    timestamp: admin.firestore.Timestamp.fromDate(targetDate),
+                    isHistoricalSeed: true
+                });
+            }
+        }
+        res.json({ success: true, message: "Historial de 7 días generado correctamente." });
+    } catch (e) {
+        if (e.message.includes("Cloud Firestore API has not been used")) {
+            return res.status(500).json({ error: "Firestore deshabilitado.", instruction: "Debe activar Firestore en la consola de Firebase." });
+        }
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Admin Route to get the status of all brands (last updated, data volume)
+registerRoute('get', '/api/admin/brands-status', async (req, res) => {
+    try {
+        const db = admin.firestore();
+        const scansRef = db.collection('scans');
+        const snapshot = await scansRef.get();
+
+        const statusMap = {};
+
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            const brand = data.brand;
+            const ts = data.timestamp ? data.timestamp.toDate() : null;
+
+            if (!brand) return;
+
+            if (!statusMap[brand]) {
+                statusMap[brand] = { count: 0, lastUpdated: ts };
+            }
+
+            statusMap[brand].count += 1;
+
+            if (ts && (!statusMap[brand].lastUpdated || ts > statusMap[brand].lastUpdated)) {
+                statusMap[brand].lastUpdated = ts;
+            }
+        });
+
+        res.json(statusMap);
+    } catch (error) {
+        console.error("[Brands Status Error]", error);
+        if (error.message.includes("Cloud Firestore API has not been used")) {
+            return res.status(500).json({
+                error: "Firestore is not enabled in this project.",
+                instruction: "Por favor, activa Firestore en el Firebase Console (Build > Firestore Database) para habilitar el rastreo real."
+            });
+        }
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Mock de data de Cuántico (Insights de marcas propias)
+registerRoute('get', '/api/cuantico/summary', async (req, res) => {
+    try {
+        const db = admin.firestore();
+        const brands = ['Bembos', 'China Wok', 'Popeyes'];
+        const summaries = [];
+
+        for (const brand of brands) {
+            const snapshot = await db.collection('scans')
+                .where('brand', '==', brand)
+                .orderBy('timestamp', 'desc')
+                .limit(1)
+                .get();
+
+            if (!snapshot.empty) {
+                const data = snapshot.docs[0].data();
+                summaries.push({
+                    brand: data.brand,
+                    sentiment: data.sentiment?.positive > 70 ? 'Favorable' : (data.sentiment?.negative > 30 ? 'Crítico' : 'Neutral'),
+                    text: data.summary || "Sin resumen disponible",
+                    date: 'Último Scan',
+                    pos: data.sentiment?.positive || 0,
+                    neu: data.sentiment?.neutral || 0,
+                    neg: data.sentiment?.negative || 0
+                });
+            } else {
+                // Fallback for brands without scans yet
+                summaries.push({
+                    brand,
+                    sentiment: 'Pendiente',
+                    text: 'Esperando primer escaneo programado...',
+                    date: 'N/A',
+                    pos: 0, neu: 0, neg: 0
+                });
+            }
+        }
+        res.json(summaries);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Admin Route to seed 7 days of Bembos Data
+registerRoute('get', '/api/admin/seed-bembos', async (req, res) => {
+    try {
+        console.log("[Admin] Iniciando seeding de Bembos...");
+        const db = admin.firestore();
+        const batch = db.batch();
+        const now = new Date();
+        const brand = "Bembos";
+
+        for (let i = 0; i < 7; i++) {
+            const date = new Date(now.getTime() - (i * 24 * 60 * 60 * 1000));
+            const scanId = `seed-bembos-${i}-${Date.now()}`;
+
+            const sentiment = {
+                positive: 70 + Math.floor(Math.random() * 25),
+                negative: Math.floor(Math.random() * 15),
+                neutral: 5 + Math.floor(Math.random() * 10)
+            };
+
+            const data = {
+                brand: brand,
+                platform: i % 2 === 0 ? 'tiktok' : 'instagram',
+                timestamp: admin.firestore.Timestamp.fromDate(date),
+                sentiment: sentiment,
+                summary: `Resumen estratégico del día ${i === 0 ? 'hoy' : i + ' días atrás'}. El volumen de menciones se mantiene estable.`,
+                commentsCount: 25 + Math.floor(Math.random() * 60),
+                topTopics: ["Sabor unico", "Pueblo Libre", "Salsas"],
+                raw_comments: [
+                    { author: 'lucho_burger', text: 'La carretillera nunca falla', followers: 850 },
+                    { author: 'lima_eats', text: 'Bembos es bife', followers: 25000 }
+                ]
+            };
+
+            const scanRef = db.collection('scans').doc(scanId);
+            batch.set(scanRef, data);
+        }
+
+        await batch.commit();
+        res.json({ status: "success", message: "Historial generado para Bembos." });
+    } catch (e) {
+        console.error("[Admin Seed Error]", e);
+        res.status(500).json({ error: e.message, stack: e.stack });
+    }
+});
+
+// Final handler for 404s
+app.use((req, res) => {
+    console.warn(`[404] No route found for ${req.method} ${req.path}`);
+    res.status(404).json({ error: `Ruta no encontrada: ${req.method} ${req.path}` });
+});
+
+if (process.env.NODE_ENV !== 'production' && require.main === module) {
+    const PORT = 3001;
+    app.listen(PORT, () => {
+        console.log(`[Backend] Servidor local corriendo en http://localhost:${PORT}`);
+    });
+}
+
+exports.apiServer = onRequest({
+    region: 'us-central1',
+    cors: true,
+    maxInstances: 10
+}, app);
+
+// Tareas Programadas - Daily Automation
+exports.dailyScouting = onSchedule({
+    schedule: 'every day 01:00', // 1 AM Lima Time
+    timeZone: 'America/Lima',
+    memory: '1GiB',
+    timeoutSeconds: 540 // Max timeout for multiple brands
+}, async (event) => {
+    console.log("[DailyScout] Iniciando escaneo estratégico de NGR Portfolio...");
+
+    const db = admin.firestore();
+    const processor = new InsightProcessor();
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    const targets = [
+        // Owned Brands
+        { brand: 'Bembos', platform: 'tiktok', url: 'https://www.tiktok.com/@bembos_peru', type: 'owned' },
+        { brand: 'Bembos', platform: 'instagram', url: 'https://www.instagram.com/bembos_peru/', type: 'owned' },
+        { brand: 'Papa Johns', platform: 'tiktok', url: 'https://www.tiktok.com/@papajohns_peru', type: 'owned' },
+        { brand: 'Papa Johns', platform: 'instagram', url: 'https://www.instagram.com/papajohns_peru/', type: 'owned' },
+        { brand: 'Dunkin', platform: 'instagram', url: 'https://www.instagram.com/dunkin_peru/', type: 'owned' },
+        { brand: 'Popeyes', platform: 'tiktok', url: 'https://www.tiktok.com/@popeyesperu', type: 'owned' },
+        { brand: 'China Wok', platform: 'tiktok', url: 'https://www.tiktok.com/@chinawokperu', type: 'owned' },
+
+        // Competitors
+        { brand: 'McDonalds', platform: 'tiktok', url: 'https://www.tiktok.com/@mcdonalds_peru', type: 'competitor' },
+        { brand: 'Burger King', platform: 'tiktok', url: 'https://www.tiktok.com/@burgerking_peru', type: 'competitor' },
+        { brand: 'KFC', platform: 'tiktok', url: 'https://www.tiktok.com/@kfcperu', type: 'competitor' },
+        { brand: 'Pizza Hut', platform: 'instagram', url: 'https://www.instagram.com/pizzahutperu/', type: 'competitor' },
+        { brand: 'Starbucks', platform: 'instagram', url: 'https://www.instagram.com/starbuckspecu/', type: 'competitor' }
+    ];
+
+    await performScouting(targets, db, processor, yesterday);
+
+    // 4. Update Weekly Report
+    const scans = await db.collection('scans').where('timestamp', '>', admin.firestore.Timestamp.fromDate(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000))).get();
+    const summaries = scans.docs.map(doc => doc.data().summary);
+    const weeklyBrief = await processor.generateWeeklyExecutiveBriefing(summaries);
+    if (weeklyBrief) {
+        await db.collection('reports').add({ ...weeklyBrief, timestamp: admin.firestore.FieldValue.serverTimestamp() });
+    }
+});
+
+async function performScouting(targets, db, processor, yesterday) {
+    for (const target of targets) {
+        try {
+            console.log(`[Scouting] Target: ${target.brand} @ ${target.platform}`);
+
+            // 1. Trigger Scraper
+            let actorId = target.platform === 'tiktok'
+                ? "clockworks~tiktok-comments-scraper"
+                : "jaroslavsemanko~instagram-comment-scraper";
+
+            let input = target.platform === 'tiktok'
+                ? { "postURLs": [target.url], "commentsPerPost": 50, "maxRepliesPerComment": 0 }
+                : { "directUrls": [target.url], "resultsLimit": 50 };
+
+            const run = await axios.post(`https://api.apify.com/v2/acts/${actorId}/runs?token=${APIFY_KEY}`, input);
+            const runId = run.data.data.id;
+            const datasetId = run.data.data.defaultDatasetId;
+
+            // 2. Wait for completion (Simple polling for production)
+            let status = 'RUNNING';
+            while (status === 'RUNNING' || status === 'READY') {
+                await new Promise(r => setTimeout(r, 10000));
+                const check = await axios.get(`https://api.apify.com/v2/acts/${actorId}/runs/${runId}?token=${APIFY_KEY}`);
+                status = check.data.data.status;
+                if (status === 'ABORTED' || status === 'FAILED') throw new Error(`Scraper ${status}`);
+            }
+
+            // 3. Process Data
+            const itemsRes = await axios.get(`https://api.apify.com/v2/datasets/${datasetId}/items?token=${APIFY_KEY}`);
+            const rawComments = itemsRes.data.map(item => ({
+                text: item.text || item.textDescription || "",
+                author: item.uniqueId || item.ownerUsername || "Usuario",
+                followers: item.authorStats?.followerCount || item.owner?.followerCount || 0,
+                platform: target.platform,
+                brand: target.brand,
+                date: item.createTimeISO || yesterday
+            })).filter(c => c.text);
+
+            if (rawComments.length > 0) {
+                const insights = await processor.analyzeSentimentAndTrends(rawComments.map(c => c.text));
+
+                const scanData = {
+                    brand: target.brand,
+                    platform: target.platform,
+                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                    commentsCount: rawComments.length,
+                    raw_comments: rawComments,
+                    ...insights
+                };
+
+                // A. Save to Firestore (Live Dashboard)
+                await db.collection('scans').doc(`${target.brand}-${target.platform}-${yesterday}`).set(scanData);
+
+                // B. BigQuery Sync (Production Stub)
+                console.log(`[BigQuery] Prereserve sync for ${rawComments.length} rows of ${target.brand}`);
+
+                // C. Slack Alert (If Critical)
+                if (insights.sentiment.negative > 30) {
+                    await processor.sendSlackNotification(
+                        `CRISIS ALERT: ${target.brand}`,
+                        `Detectado ${insights.sentiment.negative}% de sentimiento negativo. \nCausa: ${insights.summary}`,
+                        "#FF53BA"
+                    );
+                }
+            }
+        } catch (err) {
+            console.error(`[Scouting Error] ${target.brand}:`, err.message);
+        }
+    }
+}
+
+exports.weeklyReport = onSchedule({
+    schedule: 'every monday 08:00',
+    timeZone: 'America/Lima',
+    memory: '1GiB'
+}, async (event) => {
+    console.log("[WeeklyReport] Iniciando consolidación semanal...");
+    const lastWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const snapshot = await admin.firestore().collection('scans')
+        .where('timestamp', '>', lastWeek)
+        .limit(20)
+        .get();
+
+    const summaries = [];
+    snapshot.forEach(doc => {
+        const d = doc.data();
+        summaries.push({ brand: d.brand, summary: d.summary, sentiment: d.sentiment });
+    });
+
+    if (summaries.length > 0) {
+        const briefing = await processor.generateWeeklyExecutiveBriefing(summaries);
+        if (briefing) {
+            await admin.firestore().collection('reports').add({
+                ...briefing,
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                scanCount: summaries.length
+            });
+            console.log(`[WeeklyReport] Briefing semanal generado con éxito.`);
+        }
+    }
+    return null;
+});
+
+registerRoute('get', '/api/reports', async (req, res) => {
+    try {
+        const snapshot = await admin.firestore().collection('reports').orderBy('timestamp', 'desc').limit(1).get();
+        if (snapshot.empty) return res.json(null);
+        res.json(snapshot.docs[0].data());
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
 });
 
-app.get('/api/historical', async (req, res) => {
+registerRoute('get', '/api/alerts', async (req, res) => {
+    try {
+        const snapshot = await admin.firestore().collection('alerts').orderBy('timestamp', 'desc').limit(5).get();
+        const logs = [];
+        snapshot.forEach(doc => logs.push(doc.data()));
+        res.json(logs);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+registerRoute('get', '/api/historical', async (req, res) => {
     try {
         const { brand, platform } = req.query;
-        let results = await getAllEntries();
-        if (brand) results = results.filter(e => e.brand === brand);
-        if (platform) results = results.filter(e => e.platform === platform);
+        let query = admin.firestore().collection('scans').orderBy('timestamp', 'desc');
+
+        if (brand) query = query.where('brand', '==', brand);
+        if (platform) query = query.where('platform', '==', platform);
+
+        const snapshot = await query.limit(20).get();
+        let results = [];
+        snapshot.forEach(doc => results.push(doc.data()));
+
+        // MOCK DATA FALLBACK
+        if (results.length === 0) {
+            results = [
+                {
+                    brand: 'Bembos',
+                    platform: 'tiktok',
+                    sentiment: { positive: 88, negative: 5 },
+                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                    raw_comments: [
+                        { author: 'burger_king_fan', text: 'La Bembos es insuperable, amo la carretillera!', followers: 15400, platform: 'tiktok' },
+                        { author: 'nico_vlog', text: 'El delivery llegó en 15 min, increíble.', followers: 2300, platform: 'tiktok' }
+                    ]
+                },
+                {
+                    brand: 'Papa Johns',
+                    platform: 'instagram',
+                    sentiment: { positive: 42, negative: 38 },
+                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                    raw_comments: [
+                        { author: 'pizza_hater', text: 'Me enviaron la pizza equivocada y nadie responde.', followers: 500, platform: 'instagram' }
+                    ]
+                }
+            ];
+        }
+
         res.json(results);
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
 });
-
-app.get('/api/alerts', async (req, res) => {
-    try {
-        const allEntries = await getAllEntries();
-        const alerts = allEntries
-            .filter(e => e.sentiment?.negative > 15)
-            .map(e => ({
-                brand: e.brand,
-                platform: e.platform,
-                message: `Sentimiento negativo elevado: ${e.sentiment.negative}%`,
-                timestamp: e.timestamp
-            }));
-        res.json(alerts);
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-app.get('/api/admin/brands-status', async (req, res) => {
-    try {
-        const allEntries = await getAllEntries();
-        res.json(getBrandsStatus(allEntries));
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-app.get('/api/reports', async (req, res) => {
-    try {
-        const allEntries = await getAllEntries();
-        res.json(buildReport(allEntries));
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// ─── ROUTES: ADMIN ───────────────────────────────────────────────────────────
-
-// Cold Start — poblar 7 días con datos realistas para Bembos
-app.post('/api/admin/seed-history', async (req, res) => {
-    console.log('[Server] Cold Start: Poblando 7 días de historial para Bembos TikTok...');
-
-    const bembosComments = [
-        [
-            { author: 'carla_foodie', text: 'La Hamburguesa Carretillera es de otro nivel, la salsa parrillera me voló la cabeza 🔥', followers: 4200 },
-            { author: 'rodrigo_eater', text: 'Fui a Bembos Miraflores y la atención fue excelente, volvería mañana mismo', followers: 810 },
-            { author: 'miguelito_qr', text: 'El combo triple viene bien servido, nada que ver con la competencia', followers: 290 },
-            { author: 'sofiperu22', text: 'Gracias Bembos por el descuento de cumpleaños! Muy detallistas', followers: 1350 },
-            { author: 'juan_hambre', text: 'Colas largas en la sucursal de San Isidro pero el resultado vale la espera', followers: 540 },
-        ],
-        [
-            { author: 'paty_eats', text: 'Las papas Bembos son las mejores que he probado, ni McDonalds las supera', followers: 7800 },
-            { author: 'elmago_chef', text: 'Nueva campaña de TikTok de Bembos es fuego, ya me antojé', followers: 3100 },
-            { author: 'kevin_delivery', text: 'Pedí por app y llegó en 25 min, perfecto para el almuerzo', followers: 220 },
-            { author: 'valeria_lc', text: 'El sabor de la carne es consistente, siempre igual de bueno', followers: 900 },
-            { author: 'mrfoodie_pe', text: 'Bembos sigue siendo el rey de las hamburguesas en Lima', followers: 15600 },
-        ],
-        [
-            { author: 'tomas_grill', text: 'Probé el Bembos Gold por primera vez y no me decepcionó', followers: 430 },
-            { author: 'andrea_taste', text: 'Me sorprendió lo fresca que estaba la lechuga, se nota la calidad', followers: 1890 },
-            { author: 'franco_comenta', text: 'El precio subió un poco pero la porción también mejoró', followers: 670 },
-            { author: 'luisa_review', text: 'Atención al cliente de primera, me cambiaron una orden sin problema', followers: 310 },
-            { author: 'pepito_viral', text: '¡el spot nuevo en tiktok! literalmente me hizo pedir un Bembos a las 11pm', followers: 22000 },
-        ],
-        [
-            { author: 'carlos_nomad', text: 'Me gusta que tienen WiFi, puedo trabajar desde el local', followers: 550 },
-            { author: 'gabi_foodlover', text: 'La salsa BBQ de Bembos es adictiva, pido siempre doble', followers: 1200 },
-            { author: 'rich_taste', text: 'Ambiente limpio y cómodo, perfecto para ir en familia', followers: 870 },
-            { author: 'yumi_peru', text: 'Combiné el combo con su limonada frozen y fue un acierto total', followers: 4500 },
-            { author: 'alex_hamb', text: 'Se demoran un poco en hora punta pero el producto siempre sale bien', followers: 380 },
-        ],
-        [
-            { author: 'paola_ig', text: 'Me pidió mi novio Bembos para ver la final y no me arrepiento', followers: 2100 },
-            { author: 'jhonn_crispy', text: 'Las alas de pollo Bembos son lo mejor que han lanzado últimamente', followers: 990 },
-            { author: 'camila_tiktok', text: 'Ese video del chef haciendo la Carretillera en el local me convenció al toque', followers: 31000 },
-            { author: 'diego_eats', text: 'La app de Bembos mejoró bastante, ahora el tracking de delivery es exacto', followers: 620 },
-            { author: 'tony_grill', text: 'Primera vez que como Bembos y ya soy fan, ¿dónde estaba toda mi vida?', followers: 175 },
-        ],
-        [
-            { author: 'fernanda_bites', text: 'El jueves a media tarde estaba casi vacío y el servicio fue rapidísimo', followers: 1440 },
-            { author: 'omar_foodie', text: 'La carne al punto exacto, ni muy cocida ni cruda. Top', followers: 720 },
-            { author: 'silvia_chef', text: 'Bembos demuestra que la calidad local puede competir con cualquier internacional', followers: 5200 },
-            { author: 'pepe_critico', text: 'La mesa estaba un poco sucia cuando llegué, pero después todo bien', followers: 280 },
-            { author: 'martin_gamer', text: 'Community manager de Bembos en TikTok está haciendo un trabajo excelente', followers: 8700 },
-        ],
-        [
-            { author: 'nat_comenta', text: 'El Bembos Clásico nunca falla, es mi combo de siempre desde hace 10 años', followers: 930 },
-            { author: 'ric_delivery', text: 'Empaque sostenible de cartón me parece un gran detalle de la marca', followers: 460 },
-            { author: 'ana_viral', text: 'Vi el trend de Bembos en TikTok y tuve que ir ese mismo día jaja', followers: 17800 },
-            { author: 'leo_review', text: 'Precio justo para la calidad que ofrecen, sin dudas el mejor fast food peruano', followers: 1100 },
-            { author: 'pablo_late', text: 'A las 11pm todavía atienden perfecto, ideal para los noctámbulos', followers: 560 },
-        ]
-    ];
-
-    const topicsPool = [
-        ['Hamburguesa Carretillera', 'Atención al cliente', 'Precio', 'Sabor'],
-        ['TikTok Viral', 'Delivery', 'Papas fritas', 'Combo'],
-        ['Calidad', 'Ambiente', 'App Bembos', 'Salsas'],
-        ['Campaña Digital', 'Personal', 'Empaque', 'Experiencia']
-    ];
-
-    try {
-        const newEntries = [];
-        for (let i = 6; i >= 0; i--) {
-            const date = new Date();
-            date.setDate(date.getDate() - i);
-            date.setHours(12, 30, 0, 0);
-
-            const comments = bembosComments[i % bembosComments.length];
-            const topics = topicsPool[i % topicsPool.length];
-            const positivePct = 82 + Math.floor(Math.random() * 8);
-            const negativePct = 3 + Math.floor(Math.random() * 6);
-            const neutralPct = 100 - positivePct - negativePct;
-
-            const entry = {
-                brand: 'Bembos',
-                platform: 'tiktok',
-                timestamp: date.toISOString(),
-                sentiment: { positive: positivePct, neutral: neutralPct, negative: negativePct },
-                commentsCount: comments.length,
-                topTopics: topics,
-                summary: `Comentarios del día reflejan alta satisfacción con la Carretillera y presencia viral en TikTok. Sentimiento positivo: ${positivePct}%.`,
-                raw_comments: comments,
-                source: 'seed'
-            };
-
-            await addEntry(entry);
-            newEntries.push(entry);
-        }
-
-        console.log(`[Server] Cold Start completado. ${newEntries.length} entradas insertadas en Firestore.`);
-        res.json({ success: true, inserted: newEntries.length });
-    } catch (e) {
-        console.error('[Seed] Error:', e.message);
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// Scout All — lanza Apify para todas las marcas y guarda en Firestore
-app.post('/api/admin/scout-all', async (req, res) => {
-    res.json({ status: 'started', message: 'Escaneo iniciado para todas las marcas en 2do plano.' });
-
-    for (const b of BRANDS) {
-        try {
-            let actorId, input;
-            if (b.platform === 'instagram') {
-                actorId = 'apify~instagram-comment-scraper';
-                input = {
-                    directUrls: [`https://www.instagram.com/${b.handle}/`],
-                    resultsLimit: 20
-                };
-            } else {
-                actorId = 'clockworks~tiktok-comments-scraper';
-                input = {
-                    profiles: [b.handle],
-                    maxItems: 20,
-                    shouldDownloadVideos: false,
-                    shouldDownloadCovers: false
-                };
-            }
-
-            console.log(`[Scout-All] Lanzando scraper para ${b.brand} (${b.platform})...`);
-            const run = await launchScraper(actorId, input);
-            const datasetId = run.defaultDatasetId;
-            console.log(`[Scout-All] ${b.brand} run: ${run.id} | dataset: ${datasetId}`);
-
-            // Esperar 40s para que Apify procese
-            await new Promise(r => setTimeout(r, 40000));
-
-            let comments = [];
-            try {
-                comments = await getResults(datasetId);
-            } catch (fetchErr) {
-                console.warn(`[Scout-All] No se pudo obtener resultados de ${b.brand}:`, fetchErr.message);
-            }
-
-            if (comments.length === 0) {
-                console.log(`[Scout-All] ${b.brand}: 0 comentarios — omitiendo.`);
-                continue;
-            }
-
-            const texts = comments.map(c => c.text || c.commentText || c.comment || '').filter(Boolean);
-
-            let insights = { sentiment: { positive: 50, neutral: 45, negative: 5 }, topTopics: [], summary: 'Sin análisis.' };
-            try {
-                insights = await analyzeSentimentAndTrends(texts);
-            } catch (geminiErr) {
-                console.warn(`[Scout-All] Gemini falló para ${b.brand}:`, geminiErr.message);
-            }
-
-            const entry = {
-                brand: b.brand,
-                platform: b.platform,
-                timestamp: new Date().toISOString(),
-                sentiment: insights.sentiment || { positive: 50, neutral: 45, negative: 5 },
-                commentsCount: comments.length,
-                topTopics: insights.topTopics || [],
-                summary: insights.summary || '',
-                raw_comments: comments.slice(0, 20),
-                source: 'apify',
-                runId: run.id,
-                datasetId
-            };
-
-            await addEntry(entry);
-            console.log(`[Scout-All] ✅ ${b.brand}: ${comments.length} comentarios guardados en Firestore. Sentimiento positivo: ${entry.sentiment.positive}%`);
-
-        } catch (e) {
-            console.error(`[Scout-All] ❌ Error en ${b.brand}:`, e.message);
-        }
-    }
-
-    console.log('[Scout-All] ✅ Escaneo masivo completado.');
-});
-
-// Clear history
-app.delete('/api/admin/clear-history', async (req, res) => {
-    try {
-        await clearAllEntries();
-        res.json({ success: true, message: 'Historial eliminado de Firestore.' });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// ─── EXPORT ──────────────────────────────────────────────────────────────────
-exports.apiServer = functions.onRequest(app);
-
