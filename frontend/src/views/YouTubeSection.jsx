@@ -2,11 +2,23 @@ import { useState } from 'react';
 import axios from 'axios';
 import { API_BASE } from '../config';
 
+const sentimentColor = (label) => {
+  if (label === 'positive') return 'text-accent-lemon';
+  if (label === 'negative') return 'text-accent-pink';
+  return 'text-fg/40';
+};
+
+const sentimentDot = (label) => {
+  if (label === 'positive') return 'bg-accent-lemon shadow-[0_0_6px_rgba(152,255,188,0.6)]';
+  if (label === 'negative') return 'bg-accent-pink shadow-[0_0_6px_rgba(255,83,186,0.6)]';
+  return 'bg-fg/30';
+};
+
 const YouTubeSection = () => {
-  const [videoUrl, setVideoUrl] = useState('');
+  const [videoUrl, setVideoUrl]     = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [results, setResults] = useState(null);
-  const [error, setError] = useState(null);
+  const [results, setResults]       = useState(null);
+  const [error, setError]           = useState(null);
 
   const handleAnalyze = async () => {
     setIsAnalyzing(true);
@@ -22,28 +34,38 @@ const YouTubeSection = () => {
     }
   };
 
+  const sentiment = results?.sentiment || {};
+  const comments  = Array.isArray(results?.comments) ? results.comments : [];
+  const topics    = Array.isArray(results?.topTopics) ? results.topTopics : [];
+
   return (
     <section className="space-y-8 pb-20">
       <header className="flex flex-col gap-4">
         <div>
-          <p className="text-xs font-bold text-fg/20 uppercase tracking-widest mb-2">Google Sentimining Solution</p>
-          <h1 className="pwa-title leading-tight text-fg">YouTube <br /><span className="text-accent-blue font-black tracking-tighter uppercase italic">NLP Analysis</span></h1>
+          <p className="text-xs font-bold text-fg/20 uppercase tracking-widest mb-2">Gemini AI Analysis</p>
+          <h1 className="pwa-title leading-tight text-fg">YouTube <br /><span className="text-accent-lemon font-black tracking-tighter uppercase italic">Comment Analysis</span></h1>
         </div>
         <div className="flex gap-4 max-w-2xl mt-4">
           <input
-            className="pwa-card bg-fg/5 border-fg/10 px-6 py-4 text-xs flex-1 outline-none focus:border-accent-blue transition-all text-fg"
+            className="pwa-card bg-fg/5 border-fg/10 px-6 py-4 text-xs flex-1 outline-none focus:border-accent-lemon transition-all text-fg"
             placeholder="https://www.youtube.com/watch?v=..."
             value={videoUrl}
             onChange={(e) => setVideoUrl(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && videoUrl && !isAnalyzing && handleAnalyze()}
           />
           <button
             onClick={handleAnalyze}
             disabled={isAnalyzing || !videoUrl}
-            className="pwa-btn px-8 bg-accent-blue border-accent-blue/50 text-white hover:shadow-[0_0_30px_rgba(0,112,243,0.4)] disabled:opacity-50"
+            className="pwa-btn px-8 bg-accent-lemon border-accent-lemon/50 text-black font-black hover:shadow-[0_0_30px_rgba(152,255,188,0.4)] disabled:opacity-50"
           >
             {isAnalyzing ? 'PROCESANDO...' : 'ANALIZAR'}
           </button>
         </div>
+        {isAnalyzing && (
+          <p className="text-[9px] font-black uppercase italic tracking-widest text-fg/30 animate-pulse">
+            Extrayendo comentarios con Apify → Analizando con Gemini (~60s)...
+          </p>
+        )}
       </header>
 
       {error && (
@@ -53,54 +75,74 @@ const YouTubeSection = () => {
       )}
 
       {results && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-          <div className="lg:col-span-8 pwa-card p-10 bg-gradient-to-br from-accent-blue/10 to-transparent border-accent-blue/20">
-            <div className="flex items-center justify-between mb-8">
-              <h3 className="text-sm font-black italic uppercase tracking-tighter text-fg">Sentimining Insights</h3>
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 bg-accent-lemon rounded-full shadow-[0_0_10px_#98FFBC]" />
-                <span className="text-[10px] font-black uppercase text-accent-lemon tracking-widest">{results.summary}</span>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {results.results.map((res, i) => (
-                <div key={i} className="flex flex-col gap-2 p-4 bg-fg/[0.03] rounded-2xl border border-fg/5 group hover:bg-fg/[0.05] transition-all">
-                  <p className="text-[11px] text-fg/50 italic leading-relaxed line-clamp-3">"{res.text}"</p>
-                  <div className="flex items-center gap-4 mt-2">
-                    <div className="flex-1 h-1 bg-fg/5 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full transition-all duration-1000 ${res.score > 0.3 ? 'bg-accent-lemon' : res.score < -0.3 ? 'bg-accent-pink' : 'bg-fg/40'}`}
-                        style={{ width: `${50 + (res.score * 50)}%` }}
-                      />
-                    </div>
-                    <span className="text-[9px] font-black uppercase text-fg/40 group-hover:text-fg transition-colors">{res.score.toFixed(2)}</span>
+        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+
+          {/* ── Stats de sentimiento ── */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+              { label: 'Comentarios',  value: results.commentsCount || comments.length, color: 'text-fg' },
+              { label: 'Positivos',    value: `${sentiment.positive || 0}%`,  color: 'text-accent-lemon', bar: sentiment.positive, barColor: 'bg-accent-lemon' },
+              { label: 'Negativos',    value: `${sentiment.negative || 0}%`,  color: 'text-accent-pink',  bar: sentiment.negative, barColor: 'bg-accent-pink'  },
+              { label: 'Neutrales',    value: `${sentiment.neutral  || 0}%`,  color: 'text-fg/40',        bar: sentiment.neutral,  barColor: 'bg-fg/20'        },
+            ].map(({ label, value, color, bar, barColor }) => (
+              <div key={label} className="pwa-card p-5 bg-fg/[0.02] border-fg/5 space-y-3">
+                <p className="text-[9px] font-black uppercase tracking-[0.2em] text-fg/30">{label}</p>
+                <p className={`text-2xl font-black italic ${color}`}>{value}</p>
+                {bar !== undefined && (
+                  <div className="h-1 w-full bg-fg/5 rounded-full overflow-hidden">
+                    <div className={`h-full ${barColor} rounded-full`} style={{ width: `${bar}%` }} />
                   </div>
-                </div>
-              ))}
-            </div>
+                )}
+              </div>
+            ))}
           </div>
 
-          <div className="lg:col-span-4 space-y-8">
-            <div className="pwa-card p-8 bg-fg/[0.01] border-fg/5">
-              <h4 className="text-[10px] font-black uppercase tracking-widest text-fg/30 mb-6 italic">GCP Flow Status</h4>
-              <div className="space-y-6">
-                {[
-                  { step: '01', label: 'YouTube Captions', status: 'Processed', color: 'text-accent-lemon' },
-                  { step: '02', label: 'NL API Sentiment', status: 'Active', color: 'text-accent-blue' },
-                  { step: '03', label: 'Entity extraction', status: 'Enabled', color: 'text-accent-lemon' },
-                  { step: '04', label: 'BigQuery Sync', status: 'Pending', color: 'text-fg/20' },
-                ].map((s, i) => (
-                  <div key={i} className="flex items-center gap-4">
-                    <span className="text-2xl font-black italic opacity-5">{s.step}</span>
-                    <div className="flex-1">
-                      <p className="text-[11px] font-black uppercase tracking-tighter">{s.label}</p>
-                      <p className={`text-[9px] font-bold uppercase ${s.color}`}>{s.status}</p>
+          {/* ── Resumen + Topics ── */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2 pwa-card p-8 bg-fg/[0.02] border-fg/5 space-y-4">
+              <p className="text-[9px] font-black uppercase tracking-[0.2em] text-fg/30">Resumen Ejecutivo</p>
+              <p className="text-sm text-fg/70 italic leading-relaxed">{results.summary || '—'}</p>
+            </div>
+            {topics.length > 0 && (
+              <div className="pwa-card p-6 bg-fg/[0.02] border-fg/5 space-y-4">
+                <p className="text-[9px] font-black uppercase tracking-[0.2em] text-fg/30">Temas Principales</p>
+                <div className="flex flex-wrap gap-2">
+                  {topics.map((t, i) => (
+                    <span key={i} className="px-2.5 py-1 bg-accent-lemon/10 border border-accent-lemon/20 text-accent-lemon text-[8px] font-black uppercase rounded-full">{t}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── Comentarios ── */}
+          {comments.length > 0 && (
+            <div className="pwa-card overflow-hidden border-fg/5 bg-fg/[0.02]">
+              <div className="px-8 py-5 border-b border-fg/5">
+                <p className="text-[9px] font-black uppercase tracking-[0.2em] text-fg/30">Comentarios analizados ({comments.length})</p>
+              </div>
+              <div className="divide-y divide-fg/[0.03] max-h-[500px] overflow-y-auto no-scrollbar">
+                {comments.map((c, i) => {
+                  const pos = sentiment.positive || 0;
+                  const neg = sentiment.negative || 0;
+                  const neu = sentiment.neutral  || 0;
+                  const label = pos >= neg && pos >= neu ? 'positive' : neg >= pos && neg >= neu ? 'negative' : 'neutral';
+                  return (
+                    <div key={i} className="flex gap-4 px-8 py-4 hover:bg-fg/[0.02] transition-colors">
+                      <div className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0 ${sentimentDot(label)}`} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[10px] font-black text-accent-lemon/80 mb-1">@{c.author || 'Usuario'}</p>
+                        <p className="text-xs text-fg/60 italic leading-snug line-clamp-2">"{c.text}"</p>
+                      </div>
+                      <div className="flex-shrink-0 text-right">
+                        <span className="text-[8px] font-black uppercase text-fg/20">{c.likes || 0} 👍</span>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
-          </div>
+          )}
         </div>
       )}
     </section>

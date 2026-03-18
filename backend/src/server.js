@@ -91,11 +91,17 @@ app.post('/api/scout', async (req, res) => {
     try {
         console.log(`[Server] Scrapeando URL: ${url} en ${platform}`);
         let actorId = "clockworks~tiktok-comments-scraper";
-        let input = { "commentsByPostUrls": [{ "url": url }], "maxCommentsPerPost": 20 };
+        let input = { "postURLs": [url], "commentsPerPost": 20, "maxRepliesPerComment": 0 };
 
         if (platform === 'instagram') {
             actorId = "jaroslavsemanko~instagram-comment-scraper";
             input = { "directUrls": [url], "resultsLimit": 20 };
+        } else if (platform === 'google-maps') {
+            actorId = "compass~google-maps-reviews-scraper";
+            input = { "queries": [url], "maxReviews": 20 };
+        } else if (platform === 'facebook') {
+            actorId = "apify~facebook-comments-scraper";
+            input = { "postUrls": [url], "maxComments": 20 };
         }
 
         const run = await apify.launchScraper(actorId, input);
@@ -105,15 +111,27 @@ app.post('/api/scout', async (req, res) => {
     }
 });
 
+// Helper: normaliza items de Apify al formato {text, author, followers} sin importar la plataforma
+function normalizeApifyItems(items) {
+    return items.map(item => ({
+        text: item.text || item.commentText || item.reviewText || item.message || item.comment || '',
+        author: item.uniqueId || item.ownerUsername || item.profileName || item.name || 'Usuario',
+        followers: item.authorStats?.followerCount || item.owner?.followersCount || item.followersCount || 0,
+        likes: item.diggCount || item.likesCount || item.likes || 0,
+    })).filter(c => c.text.trim().length > 0);
+}
+
 // Scout Bot — insights de un dataset con Gemini real
 app.get('/api/insights/:datasetId', async (req, res) => {
     try {
-        const comments = await apify.getResults(req.params.datasetId);
-        const texts = comments.map(c => c.text || c.commentText || c.comment || '').filter(Boolean);
+        const { platform = 'social', brand = 'NGR' } = req.query;
+        const raw = await apify.getResults(req.params.datasetId);
+        const comments = normalizeApifyItems(raw);
 
         let insights = { sentiment: { positive: 50, neutral: 45, negative: 5 }, topTopics: [], summary: 'Sin análisis aún.' };
-        if (texts.length > 0) {
-            insights = await processor.analyzeSentimentAndTrends(texts);
+        if (comments.length > 0) {
+            // Pasamos objetos ricos con metadata de cuenta, no solo texto
+            insights = await processor.analyzeSentimentAndTrends(comments, brand, platform);
         }
 
         res.json({
@@ -324,19 +342,18 @@ app.post('/api/admin/scout-all', async (req, res) => {
             // Seleccionar actor e input según plataforma
             let actorId, input;
             if (b.platform === 'instagram') {
-                actorId = "apify~instagram-comment-scraper";
+                actorId = "jaroslavsemanko~instagram-comment-scraper";
                 input = {
                     "directUrls": [`https://www.instagram.com/${b.handle}/`],
                     "resultsLimit": 20
                 };
             } else {
-                // TikTok por defecto
+                // TikTok — acepta URL de perfil o de video
                 actorId = "clockworks~tiktok-comments-scraper";
                 input = {
-                    "profiles": [b.handle],
-                    "maxItems": 20,
-                    "shouldDownloadVideos": false,
-                    "shouldDownloadCovers": false
+                    "postURLs": [`https://www.tiktok.com/@${b.handle}`],
+                    "commentsPerPost": 20,
+                    "maxRepliesPerComment": 0
                 };
             }
 
@@ -349,24 +366,24 @@ app.post('/api/admin/scout-all', async (req, res) => {
             await new Promise(r => setTimeout(r, 40000));
 
             // Obtener resultados
-            let comments = [];
+            let rawItems = [];
             try {
-                comments = await apify.getResults(datasetId);
+                rawItems = await apify.getResults(datasetId);
             } catch (fetchErr) {
                 console.warn(`[Scout-All] No se pudo obtener resultados de ${b.brand}:`, fetchErr.message);
             }
+
+            const comments = normalizeApifyItems(rawItems);
 
             if (comments.length === 0) {
                 console.log(`[Scout-All] ${b.brand}: 0 comentarios — omitiendo.`);
                 continue;
             }
 
-            const texts = comments.map(c => c.text || c.commentText || c.comment || '').filter(Boolean);
-
-            // Análisis Gemini real
+            // Análisis Gemini — pasamos objetos ricos con metadata de cuenta
             let insights = { sentiment: { positive: 50, neutral: 45, negative: 5 }, topTopics: [], summary: 'Sin análisis.' };
             try {
-                insights = await processor.analyzeSentimentAndTrends(texts);
+                insights = await processor.analyzeSentimentAndTrends(comments, b.brand, b.platform);
             } catch (geminiErr) {
                 console.warn(`[Scout-All] Gemini falló para ${b.brand}:`, geminiErr.message);
             }
@@ -377,13 +394,21 @@ app.post('/api/admin/scout-all', async (req, res) => {
                 platform: b.platform,
                 timestamp: new Date().toISOString(),
                 sentiment: insights.sentiment || { positive: 50, neutral: 45, negative: 5 },
+                sentiment_breakdown: insights.sentiment_breakdown || {},
                 commentsCount: comments.length,
                 topTopics: insights.topTopics || [],
+                topicClusters: insights.topicClusters || [],
+                comments_analyzed: insights.comments_analyzed || [],
+                alerts: insights.alerts || [],
+                wordCloud: insights.wordCloud || [],
                 summary: insights.summary || '',
-                raw_comments: comments.slice(0, 20),
+                recommendations: insights.recommendations || [],
+                suggestedReplies: insights.suggestedReplies || [],
+                raw_comments: comments.slice(0, 25),
                 source: 'apify',
                 runId: run.id,
-                datasetId
+                datasetId,
+                totalProcessed: insights.totalProcessed || comments.length
             };
 
             scanStore.push(entry);

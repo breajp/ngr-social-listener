@@ -23,13 +23,158 @@ app.use((req, res, next) => {
 app.get('/api/ping', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
 app.get('/ping', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
 
-const APIFY_KEY = process.env.APIFY_API_KEY || "";
-const GEMINI_KEY = process.env.GEMINI_API_KEY || "";
+// En Cloud Run las keys llegan como env vars regulares (ya estaban configuradas antes del Secret Manager)
+const getApifyKey = () => process.env.APIFY_API_KEY || '';
+const getGeminiKey = () => process.env.GEMINI_API_KEY || '';
 
-console.log("[Backend] Gemini Key length:", GEMINI_KEY.length);
+console.log('[Backend] Cloud Functions inicializadas. Apify key length:', getApifyKey().length);
 
 const processor = new InsightProcessor();
 const ytProcessor = new YoutubeProcessor();
+
+// Helper: normaliza items de Apify al formato {text, author, followers}
+// ─── Normalize comment items from any platform ──────────────────────────────
+function normalizeApifyItems(items) {
+    if (!Array.isArray(items)) return [];
+    return items.map(item => ({
+        text:      item.text || item.commentText || item.reviewText || item.message || item.comment || '',
+        author:    item.uniqueId || item.ownerUsername || item.username || item.profileName || item.name || 'Usuario',
+        followers: item.authorStats?.followerCount || item.authorMeta?.fans ||
+                   item.owner?.followersCount || item.followersCount || 0,
+        likes:     item.diggCount || item.likesCount || item.likes || item.thumbsUpCount || 0,
+        date:      item.createTime ? new Date(item.createTime * 1000).toISOString()
+                   : item.timestamp || item.createdAt || null,
+    })).filter(c => c.text.trim().length > 5); // filtrar textos muy cortos
+}
+
+// ─── Helper: lanzar un actor Apify y esperar el resultado ───────────────────
+async function runApifyActor(actorId, input, apifyKey) {
+    const run = await axios.post(
+        `https://api.apify.com/v2/acts/${actorId}/runs?token=${apifyKey}`, input
+    );
+    const runId = run.data.data.id;
+    const datasetId = run.data.data.defaultDatasetId;
+
+    let status = run.data.data.status;
+    while (status === 'RUNNING' || status === 'READY') {
+        await new Promise(r => setTimeout(r, 8000));
+        const check = await axios.get(
+            `https://api.apify.com/v2/acts/${actorId}/runs/${runId}?token=${apifyKey}`
+        );
+        status = check.data.data.status;
+        if (status === 'ABORTED' || status === 'FAILED') throw new Error(`Scraper ${status}`);
+    }
+
+    const itemsRes = await axios.get(
+        `https://api.apify.com/v2/datasets/${datasetId}/items?token=${apifyKey}`
+    );
+    return Array.isArray(itemsRes.data) ? itemsRes.data : [];
+}
+
+// ─── TikTok: perfil → últimos N videos → comentarios + metadata ─────────────
+async function scrapeTikTokComments(profileUrl, apifyKey, numVideos = 10) {
+    // PASO 1: obtener videos recientes del perfil
+    console.log(`[TikTok] Paso 1: obteniendo últimos ${numVideos} videos de ${profileUrl}`);
+    const videos = await runApifyActor(
+        'clockworks~free-tiktok-scraper',
+        { profiles: [profileUrl], resultsPerPage: numVideos,
+          shouldDownloadVideos: false, shouldDownloadCovers: false },
+        apifyKey
+    );
+
+    const videoItems = videos.slice(0, numVideos);
+    const videoUrls = videoItems
+        .map(v => v.webVideoUrl || v.url || v.videoUrl)
+        .filter(url => url && url.includes('tiktok.com'));
+
+    // Guardar metadata de cada video para uso posterior
+    const videoMeta = videoItems.map(v => ({
+        url:         v.webVideoUrl || v.url || v.videoUrl || '',
+        thumbnailUrl: v.coverUrl || v.thumbnail || '',
+        description: (v.desc || v.text || '').slice(0, 200),
+        platform:    'tiktok',
+        likes:       v.stats?.diggCount || v.diggCount || 0,
+        views:       v.stats?.playCount || v.playCount || 0,
+        commentCount: v.stats?.commentCount || v.commentCount || 0,
+    })).filter(v => v.url);
+
+    if (videoUrls.length === 0) throw new Error('No se encontraron videos en el perfil TikTok');
+    console.log(`[TikTok] Paso 2: extrayendo comentarios de ${videoUrls.length} videos`);
+
+    // PASO 2: extraer comentarios de esos videos
+    const rawComments = await runApifyActor(
+        'clockworks~tiktok-comments-scraper',
+        { postURLs: videoUrls, commentsPerPost: 20, maxRepliesPerComment: 0 },
+        apifyKey
+    );
+
+    // Tagear cada comentario con su video de origen
+    const comments = rawComments.map(c => ({
+        ...c,
+        sourceVideoUrl: c.postUrl || c.videoUrl || videoUrls[0] || '',
+    }));
+
+    console.log(`[TikTok] ${comments.length} comentarios obtenidos`);
+    return { comments, videoMeta };
+}
+
+// ─── Instagram: perfil → últimos N posts → comentarios + metadata ────────────
+async function scrapeInstagramComments(profileUrl, apifyKey, numPosts = 10) {
+    // PASO 1: obtener posts recientes del perfil
+    console.log(`[Instagram] Paso 1: obteniendo últimos ${numPosts} posts de ${profileUrl}`);
+    const posts = await runApifyActor(
+        'apify~instagram-scraper',
+        { directUrls: [profileUrl], resultsType: 'posts', resultsLimit: numPosts, addParentData: false },
+        apifyKey
+    );
+
+    const postItems = posts.slice(0, numPosts);
+    const postUrls = postItems
+        .map(p => p.url || (p.shortCode ? `https://www.instagram.com/p/${p.shortCode}/` : null))
+        .filter(Boolean);
+
+    // Metadata de cada post
+    const videoMeta = postItems.map(p => ({
+        url:          p.url || (p.shortCode ? `https://www.instagram.com/p/${p.shortCode}/` : ''),
+        thumbnailUrl: p.displayUrl || p.thumbnailUrl || p.previewUrl || '',
+        description:  (p.caption || p.text || '').slice(0, 200),
+        platform:     'instagram',
+        likes:        p.likesCount || p.likes || 0,
+        views:        p.videoViewCount || p.videoPlayCount || 0,
+        commentCount: p.commentsCount || 0,
+    })).filter(v => v.url);
+
+    if (postUrls.length === 0) throw new Error('No se encontraron posts en el perfil de Instagram');
+    console.log(`[Instagram] Paso 2: extrayendo comentarios de ${postUrls.length} posts`);
+
+    // PASO 2: intentar con jaroslavsemanko, fallback a apify~instagram-comment-scraper
+    let rawComments = [];
+    try {
+        rawComments = await runApifyActor(
+            'jaroslavsemanko~instagram-comment-scraper',
+            { directUrls: postUrls, resultsLimit: 20 },
+            apifyKey
+        );
+    } catch (e) {
+        console.warn(`[Instagram] jaroslavsemanko falló (${e.message}), intentando actor alternativo...`);
+        rawComments = await runApifyActor(
+            'apify~instagram-comment-scraper',
+            { directUrls: postUrls, resultsPerPost: 20 },
+            apifyKey
+        );
+    }
+
+    // Tagear cada comentario con su post de origen
+    const comments = rawComments.map(c => ({
+        ...c,
+        sourceVideoUrl: c.postUrl || c.ownerUrl || postUrls[0] || '',
+    }));
+
+    console.log(`[Instagram] ${comments.length} comentarios obtenidos`);
+    return { comments, videoMeta };
+}
+
+
 
 // Helper for dual routes (with and without /api prefix)
 const registerRoute = (method, path, handler) => {
@@ -42,109 +187,146 @@ const registerRoute = (method, path, handler) => {
 registerRoute('post', '/api/youtube/analyze', async (req, res) => {
     const { videoUrl } = req.body;
     try {
-        console.log(`[Youtube] Analizando: ${videoUrl}`);
-        let videoId = "";
-        if (videoUrl.includes('v=')) videoId = videoUrl.split('v=')[1]?.split('&')[0];
+        console.log(`[YouTube] Analizando: ${videoUrl}`);
+
+        // Validar URL de YouTube
+        let videoId = '';
+        if (videoUrl.includes('v='))         videoId = videoUrl.split('v=')[1]?.split('&')[0];
         else if (videoUrl.includes('youtu.be/')) videoId = videoUrl.split('youtu.be/')[1]?.split('?')[0];
+        if (!videoId) throw new Error('URL de YouTube no válida. Usá https://www.youtube.com/watch?v=XXXX');
 
-        if (!videoId) throw new Error("URL de YouTube no válida. Use formato https://www.youtube.com/watch?v=XXXX");
+        const canonicalUrl = `https://www.youtube.com/watch?v=${videoId}`;
+        console.log(`[YouTube] VideoId: ${videoId}`);
 
-        const comments = await ytProcessor.getComments(videoId, process.env.GEMINI_API_KEY || GEMINI_KEY);
-        const analysis = await ytProcessor.analyzeSentimentInBulk(comments, process.env.GEMINI_API_KEY || GEMINI_KEY);
+        // PASO 1: scraping de comentarios con Apify
+        const rawItems = await runApifyActor(
+            'streamers~youtube-comments-scraper',
+            { startUrls: [{ url: canonicalUrl, method: 'GET' }], maxComments: 40 },
+            getApifyKey()
+        );
+
+        // streamers~youtube-comments-scraper devuelve: comment, author, voteCount, publishedTimeText
+        if (rawItems.length > 0) {
+            console.log(`[YouTube] ${rawItems.length} raw items. Primer item:`, JSON.stringify(rawItems[0]).slice(0, 200));
+        } else {
+            console.warn('[YouTube] El actor devolvió 0 ítems');
+        }
+
+        const comments = rawItems
+            .filter(item => {
+                const t = item.comment || item.text || item.commentText || '';
+                return t.trim().length > 3;
+            })
+            .map(item => ({
+                text:     item.comment || item.text || item.commentText || '',
+                author:   (item.author || 'Usuario').replace('@', ''),
+                followers: 0,
+                likes:    item.voteCount || item.likeCount || item.likes || 0,
+                date:     item.publishedTimeText || item.publishedAt || new Date().toISOString().split('T')[0],
+                platform: 'youtube',
+            }));
+
+
+        if (comments.length === 0) throw new Error('No se encontraron comentarios en este video.');
+        console.log(`[YouTube] ${comments.length} comentarios a analizar`);
+
+        // PASO 2: análisis con Gemini — máximo 40 comentarios para no superar timeout
+        const insights = await processor.analyzeSentimentAndTrends(
+            comments.slice(0, 40), `YouTube-${videoId}`, 'youtube'
+        );
+
+        // Guardar en Firestore
+        const scanData = {
+            brand: `YouTube-${videoId}`, platform: 'youtube',
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            commentsCount: comments.length,
+            raw_comments: comments,
+            videoUrl: canonicalUrl,
+            ...insights
+        };
+        await admin.firestore().collection('scans').doc(`youtube-${videoId}`).set(scanData);
 
         res.json({
-            status: "success",
+            status: 'success',
             videoId,
-            results: analysis,
-            summary: `Analizados ${analysis.length} comentarios con Google NL API.`
+            commentsCount: comments.length,
+            sentiment: insights.sentiment,
+            summary: insights.summary,
+            topTopics: insights.topTopics,
+            comments: comments.slice(0, 20),
         });
     } catch (e) {
-        console.error("[Youtube Route Error]", e);
+        console.error('[YouTube Route Error]', e.message);
         res.status(500).json({ error: e.message });
     }
 });
 
-registerRoute('post', '/api/scout', async (req, res) => {
-    const { url, platform } = req.body;
 
-    // MODO MOCK para no gastar créditos de Apify
-    if (url.includes('test-mode') || url.includes('mock-data')) {
-        const datasetId = `mock - ${Date.now()}`;
-        return res.json({ status: 'processing', datasetId, isMock: true });
-    }
+registerRoute('post', '/api/scout', async (req, res) => {
+    const { url, platform, brand } = req.body;
+    if (!url) return res.status(400).json({ error: 'URL requerida' });
+
+    const actorConfig = {
+        tiktok:        { id: 'clockworks~tiktok-comments-scraper',       input: { postURLs: [url], commentsPerPost: 25, maxRepliesPerComment: 0 } },
+        instagram:     { id: 'jaroslavsemanko~instagram-comment-scraper', input: { directUrls: [url], resultsLimit: 25 } },
+        'google-maps': { id: 'compass~google-maps-reviews-scraper',       input: { queries: [url], maxReviews: 25 } },
+        facebook:      { id: 'apify~facebook-comments-scraper',           input: { postUrls: [url], maxComments: 25 } },
+    };
+    const config = actorConfig[platform];
+    if (!config) return res.status(400).json({ error: `Plataforma no soportada: ${platform}` });
 
     try {
-        let actorId = "";
-        let input = {};
+        console.log(`[ScoutBot] Scraping ${platform}: ${url}`);
 
-        if (platform === 'tiktok') {
-            actorId = "clockworks~tiktok-comments-scraper";
-            input = { "postURLs": [url], "commentsPerPost": 20, "maxRepliesPerComment": 0 };
-        } else if (platform === 'instagram') {
-            actorId = "jaroslavsemanko~instagram-comment-scraper";
-            input = { "directUrls": [url], "resultsLimit": 20 };
-        } else if (platform === 'google-maps') {
-            actorId = "compass~google-maps-reviews-scraper";
-            input = { "queries": [url], "maxReviews": 20 };
-        } else if (platform === 'facebook') {
-            actorId = "apify~facebook-comments-scraper";
-            input = { "postUrls": [url], "maxComments": 20 };
+        // PASO 1: Apify — espera a que el actor termine (runApifyActor es síncrono)
+        const rawItems = await runApifyActor(config.id, config.input, getApifyKey());
+        const comments = normalizeApifyItems(rawItems).map(c => ({ ...c, platform }));
+
+        if (comments.length === 0) {
+            return res.json({
+                status: 'done', comments: 0, comments_raw: [],
+                summary: 'No se encontraron comentarios para analizar.',
+                sentiment: { positive: 0, negative: 0, neutral: 100 }
+            });
         }
+        console.log(`[ScoutBot] ${comments.length} comentarios → Gemini`);
 
-        const response = await axios.post(`https://api.apify.com/v2/acts/${actorId}/runs?token=${APIFY_KEY}`, input);
-        const datasetId = response.data.data.defaultDatasetId;
+        // PASO 2: Gemini
+        const insights = await processor.analyzeSentimentAndTrends(
+            comments.slice(0, 30), brand || platform, platform
+        );
 
-        res.json({ status: 'processing', datasetId });
+        // Guardar en Firestore
+        const docId = `scout-${platform}-${Date.now()}`;
+        await admin.firestore().collection('scans').doc(docId).set({
+            brand: brand || url, platform,
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            commentsCount: comments.length,
+            raw_comments: comments,
+            source: 'scout',
+            ...insights
+        });
+
+        res.json({ status: 'done', comments: comments.length, comments_raw: comments, ...insights });
     } catch (error) {
-        console.error("[Scout Error]", error);
+        console.error('[ScoutBot Error]', error.message);
         res.status(500).json({ error: error.message });
     }
 });
 
+// Endpoint legacy de insights (solo para mock data)
 registerRoute('get', '/api/insights/:datasetId', async (req, res) => {
     const { datasetId } = req.params;
-
     try {
-        let comments = [];
-        let isMock = datasetId.startsWith('mock-');
-
-        if (isMock) {
-            comments = [
-                { text: "Me encanta la nueva hamburguesa de Bembos!", author: "@comidista" },
-                { text: "La promo de Papa Johns demoró una hora, mal ahí.", author: "@hambriento1" },
-                { text: "El personal de NGR siempre es muy amable.", author: "@fan_fb" },
-                { text: "Rico pero un poco caro", author: "@lima_user" },
-                { text: "Excelente atención en Popeyes", author: "@fastfood_fan" }
-            ];
-        } else {
-            const response = await axios.get(`https://api.apify.com/v2/datasets/${datasetId}/items?token=${APIFY_KEY}`);
-            comments = response.data.map(item => ({
-                text: item.text || item.textDescription || item.reviewText || "",
-                author: item.uniqueId || item.ownerUsername || item.name || "Usuario"
-            })).filter(c => c.text);
-        }
-
-        const insights = await processor.analyzeSentimentAndTrends(comments.map(c => c.text));
-
-        // Guardar en Firestore para el historial
-        const scanData = {
-            id: datasetId,
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
-            platform: isMock ? 'mock' : 'social',
-            commentsCount: comments.length,
-            ...insights
-        };
-
-        await admin.firestore().collection('scans').doc(datasetId).set(scanData);
-
-        res.json({
-            comments: comments.length,
-            comments_raw: comments,
-            ...insights,
-            isMock
-        });
+        const comments = [
+            { text: 'Me encanta la nueva hamburguesa de Bembos!', author: 'comidista', followers: 1200, likes: 45 },
+            { text: 'La promo de Papa Johns demoró una hora, mal ahí.', author: 'hambriento1', followers: 500, likes: 12 },
+            { text: 'El personal de NGR siempre es muy amable.', author: 'fan_fb', followers: 800, likes: 30 },
+        ];
+        const insights = await processor.analyzeSentimentAndTrends(comments.slice(0, 30), datasetId, 'social');
+        res.json({ comments: comments.length, comments_raw: comments, ...insights });
     } catch (error) {
-        console.error("[Insights Error]", error);
+        console.error('[Insights Error]', error.message);
         res.status(500).json({ error: error.message });
     }
 });
@@ -167,37 +349,79 @@ registerRoute('get', '/api/history', async (req, res) => {
 // Admin route to trigger full scouting manually
 registerRoute('post', '/api/admin/scout-all', async (req, res) => {
     try {
-        console.log("[Admin] Manual multi-brand scout triggered.");
-        const targets = [
-            { brand: 'Bembos', platform: 'tiktok', url: 'https://www.tiktok.com/@bembos_peru', type: 'owned' },
-            { brand: 'Bembos', platform: 'instagram', url: 'https://www.instagram.com/bembos_peru/', type: 'owned' },
-            { brand: 'Papa Johns', platform: 'tiktok', url: 'https://www.tiktok.com/@papajohns_peru', type: 'owned' },
-            { brand: 'Papa Johns', platform: 'instagram', url: 'https://www.instagram.com/papajohns_peru/', type: 'owned' },
-            { brand: 'Dunkin', platform: 'instagram', url: 'https://www.instagram.com/dunkin_peru/', type: 'owned' },
-            { brand: 'Popeyes', platform: 'tiktok', url: 'https://www.tiktok.com/@popeyesperu', type: 'owned' },
-            { brand: 'China Wok', platform: 'tiktok', url: 'https://www.tiktok.com/@chinawokperu', type: 'owned' },
-            { brand: 'McDonalds', platform: 'tiktok', url: 'https://www.tiktok.com/@mcdonalds_peru', type: 'competitor' },
-            { brand: 'Burger King', platform: 'tiktok', url: 'https://www.tiktok.com/@burgerking_peru', type: 'competitor' },
-            { brand: 'KFC', platform: 'tiktok', url: 'https://www.tiktok.com/@kfcperu', type: 'competitor' },
-            { brand: 'Pizza Hut', platform: 'instagram', url: 'https://www.instagram.com/pizzahutperu/', type: 'competitor' },
-            { brand: 'Starbucks', platform: 'instagram', url: 'https://www.instagram.com/starbuckspecu/', type: 'competitor' }
+        const { selectedKeys } = req.body || {};
+        console.log("[Admin] Manual scout triggered. selectedKeys:", selectedKeys || 'ALL');
+
+        // ─── Lista maestra de todas las cuentas posibles ─────────────────────
+        // IMPORTANTE: las keys "brand:platform" deben coincidir con el frontend (SettingsView.jsx)
+        const ALL_TARGETS = [
+            { brand: 'Bembos',        platform: 'tiktok',    url: 'https://www.tiktok.com/@bembos.oficial',      type: 'owned' },
+            { brand: 'Papa Johns',    platform: 'tiktok',    url: 'https://www.tiktok.com/@papajohnsperu',       type: 'owned' },
+            { brand: 'Popeyes',       platform: 'tiktok',    url: 'https://www.tiktok.com/@popeyesperuoficial',  type: 'owned' },
+            { brand: 'China Wok',     platform: 'tiktok',    url: 'https://www.tiktok.com/@chinawokperu',        type: 'owned' },
+            { brand: 'Dunkin Donuts', platform: 'instagram', url: 'https://www.instagram.com/dunkindonutsperu/', type: 'owned' },
+            { brand: 'McDonalds',     platform: 'tiktok',    url: 'https://www.tiktok.com/@mcdonaldsperu',       type: 'competitor' },
+            { brand: 'Pizza Hut',     platform: 'instagram', url: 'https://www.instagram.com/pizzahutperu/',     type: 'competitor' },
+            { brand: 'Starbucks',     platform: 'instagram', url: 'https://www.instagram.com/starbucksperu/',    type: 'competitor' },
         ];
 
-        // Trigger in background to avoid HTTP timeout
+        // Filtrar según selección del frontend, o usar todos si no se especifica
+        const targets = Array.isArray(selectedKeys) && selectedKeys.length > 0
+            ? ALL_TARGETS.filter(t => selectedKeys.includes(`${t.brand}:${t.platform}`))
+            : ALL_TARGETS;
+
+        if (targets.length === 0) {
+            return res.status(400).json({ error: 'No hay targets seleccionados.' });
+        }
+
+        console.log(`[Admin] Escaneando ${targets.length} cuenta(s):`, targets.map(t => `${t.brand}@${t.platform}`).join(', '));
+
         const db = admin.firestore();
-        const processor = new InsightProcessor();
+        const p = new InsightProcessor();
         const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-        performScouting(targets, db, processor, yesterday).catch(err => {
-            console.error("[scout-all async error]", err);
+
+        // Inicializar estado de progreso en Firestore
+        await db.collection('meta').doc('scoutStatus').set({
+            status: 'running',
+            startedAt: admin.firestore.FieldValue.serverTimestamp(),
+            total: targets.length,
+            completed: 0,
+            failed: 0,
+            currentBrand: targets[0].brand,
+            currentPlatform: targets[0].platform,
+            items: targets.map(t => ({ brand: t.brand, platform: t.platform, status: 'pending', commentsCount: 0 })),
+            finishedAt: null
         });
 
-        res.json({ status: "initiated", message: `Iniciando escaneo de ${targets.length} perfiles en segundo plano.`, targets: targets.map(t => `${t.brand} (${t.platform})`) });
+        performScouting(targets, db, p, yesterday).catch(err => {
+            console.error("[scout-all async error]", err);
+            db.collection('meta').doc('scoutStatus').update({ status: 'error', error: err.message });
+        });
+
+        res.json({ status: "initiated", message: `Iniciando escaneo de ${targets.length} perfiles en segundo plano.`, total: targets.length });
     } catch (e) {
         if (e.message.includes("Cloud Firestore API has not been used")) {
             return res.status(500).json({ error: "Firestore deshabilitado.", instruction: "Habilite Firestore para activar el escaneo estratégico." });
         }
         res.status(500).json({ error: e.message });
+    }
+});
+
+// Consultar estado del escaneo masivo en curso
+registerRoute('get', '/api/admin/scout-status', async (req, res) => {
+    try {
+        const doc = await admin.firestore().collection('meta').doc('scoutStatus').get();
+        if (!doc.exists) return res.json({ status: 'idle' });
+        const data = doc.data();
+        // Convertir Timestamps de Firestore a ISO strings
+        res.json({
+            ...data,
+            startedAt: data.startedAt?.toDate?.()?.toISOString() || null,
+            finishedAt: data.finishedAt?.toDate?.()?.toISOString() || null,
+        });
+    } catch (e) {
+        res.json({ status: 'idle' });
     }
 });
 
@@ -324,7 +548,6 @@ registerRoute('get', '/api/cuantico/summary', async (req, res) => {
                     neg: data.sentiment?.negative || 0
                 });
             } else {
-                // Fallback for brands without scans yet
                 summaries.push({
                     brand,
                     sentiment: 'Pendiente',
@@ -336,7 +559,79 @@ registerRoute('get', '/api/cuantico/summary', async (req, res) => {
         }
         res.json(summaries);
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        // Devolver array vacío en lugar de objeto de error para no romper .map() en el frontend
+        console.error('[Cuantico Error]', error.message);
+        res.json([]);
+    }
+});
+
+// Alertas activas (tomadas de los últimos scans)
+registerRoute('get', '/api/alerts', async (req, res) => {
+    try {
+        const db = admin.firestore();
+        const snapshot = await db.collection('scans')
+            .orderBy('timestamp', 'desc')
+            .limit(20)
+            .get();
+
+        const alerts = [];
+        snapshot.forEach(doc => {
+            const d = doc.data();
+            (d.alerts || []).forEach(a => alerts.push(typeof a === 'string' ? { message: a, brand: d.brand } : { ...a, brand: d.brand }));
+        });
+
+        res.json(alerts.slice(0, 10));
+    } catch (e) {
+        console.error('[Alerts Error]', e.message);
+        res.json([]);
+    }
+});
+
+// Reporte semanal más reciente
+registerRoute('get', '/api/reports', async (req, res) => {
+    try {
+        const db = admin.firestore();
+        const snapshot = await db.collection('reports')
+            .orderBy('createdAt', 'desc')
+            .limit(1)
+            .get();
+
+        if (!snapshot.empty) {
+            return res.json(snapshot.docs[0].data());
+        }
+        res.json(null);
+    } catch (e) {
+        console.error('[Reports Error]', e.message);
+        res.json(null);
+    }
+});
+
+// Serie histórica de sentimiento por marca/plataforma
+registerRoute('get', '/api/historical', async (req, res) => {
+    try {
+        const { brand, platform } = req.query;
+        const db = admin.firestore();
+        let query = db.collection('scans').orderBy('timestamp', 'desc').limit(30);
+        if (brand) query = query.where('brand', '==', brand);
+
+        const snapshot = await query.get();
+        const rows = [];
+        snapshot.forEach(doc => {
+            const d = doc.data();
+            rows.push({
+                brand: d.brand,
+                platform: d.platform,
+                date: d.timestamp?.toDate?.()?.toISOString() || null,
+                positive: d.sentiment?.positive || 0,
+                negative: d.sentiment?.negative || 0,
+                neutral: d.sentiment?.neutral || 0,
+                commentsCount: d.commentsCount || 0,
+            });
+        });
+        res.json(rows);
+    } catch (e) {
+        console.error('[Historical Error]', e.message);
+        res.json([]);
     }
 });
 
@@ -385,11 +680,52 @@ registerRoute('get', '/api/admin/seed-bembos', async (req, res) => {
     }
 });
 
+// ─── Endpoint: uso real de cuota de Apify ────────────────────────────────────
+registerRoute('get', '/api/admin/apify-usage', async (req, res) => {
+    try {
+        const { data } = await axios.get(
+            `https://api.apify.com/v2/users/me?token=${getApifyKey()}`
+        );
+        const user = data.data;
+        const plan = user.plan || {};
+        const usage = user.monthlyUsage || {};
+        res.json({
+            username:          user.username,
+            planName:          plan.id || plan.name || 'Free',
+            limitUsd:          plan.monthlyUsageCreditsUsdLimit || 5,
+            usedAcu:           usage.ACTOR_COMPUTE_UNITS || 0,
+            usedUsd:           plan.currentPeriodUsageUsd || (usage.ACTOR_COMPUTE_UNITS || 0) * 0.4,
+            nextResetDate:     plan.currentPeriodEndDate || null,
+        });
+    } catch (e) {
+        console.error('[ApifyUsage]', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// ─── Endpoint: posts rankeados por sentimiento ────────────────────────────────
+registerRoute('get', '/api/posts', async (req, res) => {
+    try {
+        const { brand, platform, sort = 'best', limit = 50 } = req.query;
+        let query = admin.firestore().collection('posts').orderBy('sentimentScore', sort === 'worst' ? 'asc' : 'desc');
+        if (brand)    query = query.where('brand', '==', brand);
+        if (platform) query = query.where('platform', '==', platform);
+        query = query.limit(parseInt(limit));
+        const snap = await query.get();
+        const posts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        res.json(posts);
+    } catch (e) {
+        console.error('[Posts]', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // Final handler for 404s
 app.use((req, res) => {
     console.warn(`[404] No route found for ${req.method} ${req.path}`);
     res.status(404).json({ error: `Ruta no encontrada: ${req.method} ${req.path}` });
 });
+
 
 if (process.env.NODE_ENV !== 'production' && require.main === module) {
     const PORT = 3001;
@@ -401,15 +737,17 @@ if (process.env.NODE_ENV !== 'production' && require.main === module) {
 exports.apiServer = onRequest({
     region: 'us-central1',
     cors: true,
-    maxInstances: 10
+    maxInstances: 10,
+    timeoutSeconds: 300,
+    memory: '1GiB',
 }, app);
 
 // Tareas Programadas - Daily Automation
 exports.dailyScouting = onSchedule({
-    schedule: 'every day 01:00', // 1 AM Lima Time
+    schedule: 'every day 01:00',
     timeZone: 'America/Lima',
     memory: '1GiB',
-    timeoutSeconds: 540 // Max timeout for multiple brands
+    timeoutSeconds: 540
 }, async (event) => {
     console.log("[DailyScout] Iniciando escaneo estratégico de NGR Portfolio...");
 
@@ -447,74 +785,134 @@ exports.dailyScouting = onSchedule({
 });
 
 async function performScouting(targets, db, processor, yesterday) {
-    for (const target of targets) {
+    const statusRef = db.collection('meta').doc('scoutStatus');
+    let completed = 0;
+    let failed = 0;
+
+    for (let idx = 0; idx < targets.length; idx++) {
+        const target = targets[idx];
         try {
-            console.log(`[Scouting] Target: ${target.brand} @ ${target.platform}`);
+            console.log(`[Scouting] (${idx + 1}/${targets.length}) ${target.brand} @ ${target.platform}`);
 
-            // 1. Trigger Scraper
-            let actorId = target.platform === 'tiktok'
-                ? "clockworks~tiktok-comments-scraper"
-                : "jaroslavsemanko~instagram-comment-scraper";
+            // Actualizar estado: procesando esta marca
+            await statusRef.update({
+                currentBrand: target.brand,
+                currentPlatform: target.platform,
+                [`items.${idx}.status`]: 'scraping',
+            }).catch(() => {});
 
-            let input = target.platform === 'tiktok'
-                ? { "postURLs": [target.url], "commentsPerPost": 50, "maxRepliesPerComment": 0 }
-                : { "directUrls": [target.url], "resultsLimit": 50 };
+            // ── Scraping en 2 pasos según plataforma ───────────────────
+            const apifyKey = getApifyKey();
+            let rawData = [];
+            let videoMeta = [];
 
-            const run = await axios.post(`https://api.apify.com/v2/acts/${actorId}/runs?token=${APIFY_KEY}`, input);
-            const runId = run.data.data.id;
-            const datasetId = run.data.data.defaultDatasetId;
-
-            // 2. Wait for completion (Simple polling for production)
-            let status = 'RUNNING';
-            while (status === 'RUNNING' || status === 'READY') {
-                await new Promise(r => setTimeout(r, 10000));
-                const check = await axios.get(`https://api.apify.com/v2/acts/${actorId}/runs/${runId}?token=${APIFY_KEY}`);
-                status = check.data.data.status;
-                if (status === 'ABORTED' || status === 'FAILED') throw new Error(`Scraper ${status}`);
+            if (target.platform === 'tiktok') {
+                const result = await scrapeTikTokComments(target.url, apifyKey, 10);
+                rawData   = result.comments;
+                videoMeta = result.videoMeta;
+            } else if (target.platform === 'instagram') {
+                const result = await scrapeInstagramComments(target.url, apifyKey, 10);
+                rawData   = result.comments;
+                videoMeta = result.videoMeta;
             }
 
-            // 3. Process Data
-            const itemsRes = await axios.get(`https://api.apify.com/v2/datasets/${datasetId}/items?token=${APIFY_KEY}`);
-            const rawComments = itemsRes.data.map(item => ({
-                text: item.text || item.textDescription || "",
-                author: item.uniqueId || item.ownerUsername || "Usuario",
-                followers: item.authorStats?.followerCount || item.owner?.followerCount || 0,
-                platform: target.platform,
-                brand: target.brand,
-                date: item.createTimeISO || yesterday
-            })).filter(c => c.text);
+            // Actualizar: analizando con Gemini
+            await statusRef.update({ [`items.${idx}.status`]: 'gemini' }).catch(() => {});
+
+            const rawComments = normalizeApifyItems(rawData).map((c, i) => ({
+                ...c, platform: target.platform, brand: target.brand, date: yesterday,
+                sourceVideoUrl: rawData[i]?.sourceVideoUrl || '',
+            }));
+
+
 
             if (rawComments.length > 0) {
-                const insights = await processor.analyzeSentimentAndTrends(rawComments.map(c => c.text));
+                // Actualizar: procesando con Gemini
+                await statusRef.update({ [`items.${idx}.status`]: 'gemini' }).catch(() => {});
+
+                const insights = await processor.analyzeSentimentAndTrends(rawComments, target.brand, target.platform);
 
                 const scanData = {
-                    brand: target.brand,
-                    platform: target.platform,
+                    brand: target.brand, platform: target.platform,
                     timestamp: admin.firestore.FieldValue.serverTimestamp(),
                     commentsCount: rawComments.length,
                     raw_comments: rawComments,
                     ...insights
                 };
 
-                // A. Save to Firestore (Live Dashboard)
                 await db.collection('scans').doc(`${target.brand}-${target.platform}-${yesterday}`).set(scanData);
 
-                // B. BigQuery Sync (Production Stub)
-                console.log(`[BigQuery] Prereserve sync for ${rawComments.length} rows of ${target.brand}`);
+                // ── Guardar metadata por video/post en colección posts ──────────────────
+                if (videoMeta.length > 0) {
+                    const positivePct = insights.sentiment?.positive || 0;
+                    const negativePct = insights.sentiment?.negative || 0;
+                    const neutralPct  = insights.sentiment?.neutral  || 0;
+                    const batch = db.batch();
+                    videoMeta.forEach((vm, vi) => {
+                        const docId = `${target.brand}-${target.platform}-${yesterday}-post${vi}`;
+                        batch.set(db.collection('posts').doc(docId), {
+                            brand:        target.brand,
+                            platform:     target.platform,
+                            date:         yesterday,
+                            url:          vm.url,
+                            thumbnailUrl: vm.thumbnailUrl,
+                            description:  vm.description,
+                            likes:        vm.likes,
+                            views:        vm.views,
+                            commentCount: vm.commentCount,
+                            // sentiment del scan completo (aproximación por video)
+                            sentiment: { positive: positivePct, negative: negativePct, neutral: neutralPct },
+                            sentimentScore: positivePct - negativePct, // [-100, 100]
+                            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                        });
+                    });
+                    await batch.commit();
+                    console.log(`[Posts] ${videoMeta.length} posts guardados para ${target.brand}`);
+                }
 
-                // C. Slack Alert (If Critical)
-                if (insights.sentiment.negative > 30) {
+                if (insights.sentiment?.negative > 30) {
                     await processor.sendSlackNotification(
                         `CRISIS ALERT: ${target.brand}`,
-                        `Detectado ${insights.sentiment.negative}% de sentimiento negativo. \nCausa: ${insights.summary}`,
-                        "#FF53BA"
+                        `Detectado ${insights.sentiment.negative}% sentimiento negativo.`,
+                        '#FF53BA'
                     );
                 }
+
+                completed++;
+                await statusRef.update({
+                    completed,
+                    [`items.${idx}.status`]: 'done',
+                    [`items.${idx}.commentsCount`]: rawComments.length,
+                    [`items.${idx}.sentiment`]: insights.sentiment?.positive || 0,
+                }).catch(() => {});
+            } else {
+                completed++;
+                await statusRef.update({
+                    completed,
+                    [`items.${idx}.status`]: 'done',
+                    [`items.${idx}.commentsCount`]: 0,
+                }).catch(() => {});
             }
         } catch (err) {
+            failed++;
             console.error(`[Scouting Error] ${target.brand}:`, err.message);
+            await statusRef.update({
+                failed,
+                [`items.${idx}.status`]: 'error',
+                [`items.${idx}.error`]: err.message,
+            }).catch(() => {});
         }
     }
+
+    // Marcar como completado
+    await statusRef.update({
+        status: 'done',
+        finishedAt: admin.firestore.FieldValue.serverTimestamp(),
+        currentBrand: null,
+        currentPlatform: null,
+    }).catch(() => {});
+
+    console.log(`[Scouting] Completado: ${completed}/${targets.length} (${failed} errores)`);
 }
 
 exports.weeklyReport = onSchedule({

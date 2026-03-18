@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import {
-  BarChart3, Search, Filter, Settings, Home, Youtube, Sun, Moon
+  BarChart3, Search, Filter, Settings, Home, Youtube, TrendingUp, Sun, Moon
 } from 'lucide-react';
 import axios from 'axios';
 
@@ -16,14 +16,17 @@ import YouTubeSection from './views/YouTubeSection';
 import ScoutBotView from './views/ScoutBotView';
 import HistoryView from './views/HistoryView';
 import SettingsView from './views/SettingsView';
+import PostsView from './views/PostsView';
+import ScoutProgressWidget from './components/ScoutProgressWidget';
 
 const NAV_ITEMS = [
-  { id: 'home', label: 'Inicio', icon: Home },
-  { id: 'insights', label: 'Dashboard', icon: BarChart3 },
-  { id: 'youtube', label: 'Sentimining', icon: Youtube },
-  { id: 'scout', label: 'Scout Bot', icon: Search },
-  { id: 'history', label: 'Historial', icon: Filter },
-  { id: 'settings', label: 'Ajustes', icon: Settings },
+  { id: 'home',     label: 'Inicio',       icon: Home        },
+  { id: 'insights', label: 'Dashboard',    icon: BarChart3   },
+  { id: 'youtube',  label: 'Sentimining',  icon: Youtube     },
+  { id: 'scout',    label: 'Scout Bot',    icon: Search      },
+  { id: 'history',  label: 'Historial',    icon: Filter      },
+  { id: 'posts',    label: 'Posts',        icon: TrendingUp  },
+  { id: 'settings', label: 'Ajustes',      icon: Settings    },
 ];
 
 export default function App() {
@@ -47,8 +50,11 @@ export default function App() {
   const timeoutRef = useRef(null);
 
   // ─── Remote data via custom hook ──────────────────────────────────────────
-  const { history, alerts, historicalData, brandsStatus, report, isUsingMockData } =
+  const { history, alerts, historicalData, brandsStatus, report, isUsingMockData, isBackendDown, isEmptyData, isLoading } =
     useAppData(activeTab, selectedBrand, selectedPlatform);
+
+  // ─── Mass scan state ──────────────────────────────────────────────────────
+  const [isMassScanRunning, setIsMassScanRunning] = useState(false);
 
   // ─── Theme toggle ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -81,36 +87,35 @@ export default function App() {
     setScoutError(null);
 
     try {
-      const res = await axios.post(`${API_BASE}/api/scout`, { url, platform });
-      const { datasetId } = res.data;
+      // /api/scout ahora es síncrono — espera hasta recibir los resultados completos
+      const res = await axios.post(`${API_BASE}/api/scout`, {
+        url, platform,
+        brand: url.includes('bembos') ? 'Bembos'
+             : url.includes('popeyes') ? 'Popeyes'
+             : url.includes('papajohns') ? 'Papa Johns'
+             : url.includes('dunkin') ? 'Dunkin'
+             : url.includes('kfc') ? 'KFC'
+             : url.includes('starbucks') ? 'Starbucks'
+             : platform,
+      }, { timeout: 280000 }); // 280 segundos (por debajo del timeout de Cloud Run de 300s)
 
-      pollRef.current = setInterval(async () => {
-        try {
-          const resultsRes = await axios.get(`${API_BASE}/api/insights/${datasetId}`);
-          if (resultsRes.data.comments > 0) {
-            setScrapedData(resultsRes.data.comments_raw || []);
-            setInsights(resultsRes.data);
-            setIsScraping(false);
-            clearInterval(pollRef.current);
-            clearTimeout(timeoutRef.current);
-          }
-        } catch (e) {
-          console.error('[Polling] Error:', e);
-        }
-      }, 5000);
-
-      timeoutRef.current = setTimeout(() => {
-        clearInterval(pollRef.current);
-        setIsScraping(prev => {
-          if (prev) setScoutError('Tiempo de espera agotado. El scraper tardó más de 2 minutos.');
-          return false;
-        });
-      }, 120000);
+      if (res.data.comments > 0) {
+        setScrapedData(res.data.comments_raw || []);
+        setInsights(res.data);
+      } else {
+        setScoutError('No se encontraron comentarios en esta URL.');
+      }
     } catch (err) {
-      setScoutError(err.message);
+      if (err.code === 'ECONNABORTED') {
+        setScoutError('Tiempo de espera agotado. Intentá con menos comentarios o probá más tarde.');
+      } else {
+        setScoutError(err.response?.data?.error || err.message);
+      }
+    } finally {
       setIsScraping(false);
     }
   };
+
 
   return (
     <div className="min-h-screen relative p-6 md:p-12 text-fg overflow-x-hidden">
@@ -120,10 +125,19 @@ export default function App() {
       </div>
 
       {/* Banner Modo Demo — protege al management de ver datos sintéticos sin aviso */}
-      {isUsingMockData && activeTab !== 'home' && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-2.5 bg-accent-orange/90 backdrop-blur-md border border-accent-orange text-black rounded-full shadow-2xl shadow-accent-orange/30 animate-pulse">
-          <div className="w-2 h-2 bg-black/40 rounded-full" />
-          <span className="text-[10px] font-black uppercase tracking-widest">Modo Demo — Conectá el backend para datos reales</span>
+      {/* Banner: backend caído — solo mostrar después de que terminó de cargar */}
+      {!isLoading && isBackendDown && activeTab !== 'home' && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-2.5 bg-accent-pink/90 backdrop-blur-md border border-accent-pink text-white rounded-full shadow-2xl shadow-accent-pink/30 animate-pulse">
+          <div className="w-2 h-2 bg-white/40 rounded-full" />
+          <span className="text-[10px] font-black uppercase tracking-widest">Backend no responde — verificá la conexión</span>
+        </div>
+      )}
+
+      {/* Banner: backend OK pero sin datos todavía */}
+      {!isLoading && isEmptyData && !isBackendDown && activeTab !== 'home' && activeTab !== 'settings' && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-2.5 bg-fg/90 backdrop-blur-md border border-fg/20 text-bg rounded-full shadow-2xl">
+          <div className="w-2 h-2 bg-bg/40 rounded-full" />
+          <span className="text-[10px] font-black uppercase tracking-widest">Sin datos aún — ejecutá el Escaneo Masivo en Configuración</span>
         </div>
       )}
 
@@ -201,20 +215,33 @@ export default function App() {
               setSelectedBrand={setSelectedBrand}
               selectedPlatform={selectedPlatform}
               setSelectedPlatform={setSelectedPlatform}
-              historicalData={historicalData}
+              historicalData={history}
             />
+          )}
+          {activeTab === 'posts' && (
+            <PostsView />
           )}
           {activeTab === 'settings' && (
             <SettingsView
               brandsStatus={brandsStatus}
               showConfirm={showConfirm}
               showAlert={showAlert}
+              onMassScanStart={() => setIsMassScanRunning(true)}
             />
           )}
         </main>
       </div>
 
       <Modal modal={modal} closeModal={closeModal} />
+
+      {/* Widget de progreso del escaneo masivo — esquina inferior derecha */}
+      <ScoutProgressWidget
+        isScanning={isMassScanRunning}
+        onScanComplete={() => {
+          setIsMassScanRunning(false);
+          showAlert('✅ Escaneo Completado', 'El escaneo masivo finalizó. Los datos ya están disponibles en el Dashboard.');
+        }}
+      />
     </div>
   );
 }
