@@ -46,5 +46,5 @@ jobs:
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HIKE_AGENTIC_PLAYGROUND }}
 
-      - name: 🔥 Deploy Hosting only (frontend)
-        run: firebase deploy --only hosting --project hike-agentic-playground --non-interactive
+      - name: 🔥 Deploy Hosting + Functions
+        run: firebase deploy --project hike-agentic-playground --non-interactive
