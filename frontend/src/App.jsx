@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import {
-  BarChart3, Search, Filter, Settings, Home, Youtube, TrendingUp, Sun, Moon
+  BarChart3, Search, Filter, Settings, Home, Youtube, TrendingUp, Sun, Moon, Zap
 } from 'lucide-react';
 import axios from 'axios';
 
@@ -18,10 +18,12 @@ import HistoryView from './views/HistoryView';
 import SettingsView from './views/SettingsView';
 import PostsView from './views/PostsView';
 import ScoutProgressWidget from './components/ScoutProgressWidget';
+import TrendsView from './views/TrendsView';
 
 const NAV_ITEMS = [
   { id: 'home',     label: 'Inicio',       icon: Home        },
   { id: 'insights', label: 'Dashboard',    icon: BarChart3   },
+  { id: 'trends',   label: 'Tendencias',   icon: Zap         },
   { id: 'youtube',  label: 'Sentimining',  icon: Youtube     },
   { id: 'scout',    label: 'Scout Bot',    icon: Search      },
   { id: 'history',  label: 'Historial',    icon: Filter      },
@@ -217,6 +219,9 @@ export default function App() {
               setSelectedPlatform={setSelectedPlatform}
               historicalData={history}
             />
+          )}
+          {activeTab === 'trends' && (
+            <TrendsView />
           )}
           {activeTab === 'posts' && (
             <PostsView />
