@@ -1014,29 +1014,33 @@ app.post('/api/sentimining/analyze', async (req, res) => {
     }
 });
 
-// ─── YouTube Latest: últimos y más vistos del canal ───────────────────────────
+// ─── YouTube Latest: RSS feed público (no requiere API key) ──────────────────
 app.get('/api/youtube/latest', async (req, res) => {
     try {
         const { channelId } = req.query;
-        const apiKey = process.env.YOUTUBE_API_KEY || process.env.GOOGLE_API_KEY || '';
-        if (!apiKey || !channelId) {
-            return res.json({ recent: [], popular: [] });
-        }
-        const [recentRes, popularRes] = await Promise.all([
-            youtube.search.list({ key: apiKey, part: 'snippet', channelId, type: 'video', order: 'date', maxResults: 5 }),
-            youtube.search.list({ key: apiKey, part: 'snippet', channelId, type: 'video', order: 'viewCount', maxResults: 5 }),
-        ]);
-        const mapVideo = item => ({
-            id: item.id.videoId,
-            title: item.snippet.title,
-            thumbnail: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
-            publishedAt: item.snippet.publishedAt,
-            url: `https://www.youtube.com/watch?v=${item.id.videoId}`
-        });
-        res.json({
-            recent: (recentRes.data.items || []).map(mapVideo),
-            popular: (popularRes.data.items || []).map(mapVideo)
-        });
+        if (!channelId) return res.json({ recent: [], popular: [] });
+
+        // YouTube RSS feed público — no necesita API key
+        const rssUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`;
+        const rssRes = await axios.get(rssUrl, { timeout: 10000, responseType: 'text' });
+        const xml = rssRes.data;
+
+        // Parsear XML manualmente (sin dependencias extra)
+        const entries = xml.split('<entry>').slice(1);
+        const videos = entries.map(entry => {
+            const videoId    = (entry.match(/<yt:videoId>([^<]+)<\/yt:videoId>/) || [])[1] || '';
+            const title      = (entry.match(/<title>([^<]+)<\/title>/) || [])[1] || '';
+            const published  = (entry.match(/<published>([^<]+)<\/published>/) || [])[1] || '';
+            const thumbnail  = `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;
+            const url        = `https://www.youtube.com/watch?v=${videoId}`;
+            return { id: videoId, title, thumbnail, publishedAt: published, url };
+        }).filter(v => v.id);
+
+        // Recent: últimos 5 | Popular: siguientes 5 (o los mismos si hay pocos)
+        const recent  = videos.slice(0, 5);
+        const popular = videos.length > 5 ? videos.slice(5, 10) : videos.slice(0);
+
+        res.json({ recent, popular });
     } catch (e) {
         console.error('[YouTube/Latest]', e.message);
         res.json({ recent: [], popular: [] });

@@ -3,8 +3,8 @@ import axios from 'axios';
 import { API_BASE } from '../config';
 import { PlayCircle, Youtube, Clock, ExternalLink } from 'lucide-react';
 
-// TODO: actualizar channelId al canal de YouTube de NGR cuando esté configurado
-const NGR_CHANNEL_ID = 'UC_HTmhrhwj1j0qfYspRaM1A'; // placeholder: reemplazar con ID del canal NGR
+// Canal de YouTube: Popeyes Perú Oficial (@popeyesperuoficial)
+const NGR_CHANNEL_ID = 'UC-2MZ5zG3WGOJSqAbFPc_ow';
 
 const sentimentColor = (label) => {
   if (label === 'positive') return 'text-accent-lemon';
