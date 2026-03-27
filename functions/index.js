@@ -76,7 +76,7 @@ async function runApifyActor(actorId, input, apifyKey) {
 }
 
 // ─── TikTok: perfil → últimos N videos → comentarios + metadata ─────────────
-async function scrapeTikTokComments(profileUrl, apifyKey, numVideos = 10) {
+async function scrapeTikTokComments(profileUrl, apifyKey, numVideos = 3) {
     // PASO 1: obtener videos recientes del perfil
     console.log(`[TikTok] Paso 1: obteniendo últimos ${numVideos} videos de ${profileUrl}`);
     const videos = await runApifyActor(
@@ -108,7 +108,7 @@ async function scrapeTikTokComments(profileUrl, apifyKey, numVideos = 10) {
     // PASO 2: extraer comentarios de esos videos
     const rawComments = await runApifyActor(
         'clockworks~tiktok-comments-scraper',
-        { postURLs: videoUrls, commentsPerPost: 20, maxRepliesPerComment: 0 },
+        { postURLs: videoUrls, commentsPerPost: 10, maxRepliesPerComment: 0 },
         apifyKey
     );
 
@@ -123,7 +123,7 @@ async function scrapeTikTokComments(profileUrl, apifyKey, numVideos = 10) {
 }
 
 // ─── Instagram: perfil → últimos N posts → comentarios + metadata ────────────
-async function scrapeInstagramComments(profileUrl, apifyKey, numPosts = 10) {
+async function scrapeInstagramComments(profileUrl, apifyKey, numPosts = 3) {
     // PASO 1: obtener posts recientes del perfil
     console.log(`[Instagram] Paso 1: obteniendo últimos ${numPosts} posts de ${profileUrl}`);
     const posts = await runApifyActor(
@@ -156,14 +156,14 @@ async function scrapeInstagramComments(profileUrl, apifyKey, numPosts = 10) {
     try {
         rawComments = await runApifyActor(
             'jaroslavsemanko~instagram-comment-scraper',
-            { directUrls: postUrls, resultsLimit: 20 },
+            { directUrls: postUrls, resultsLimit: 10 },
             apifyKey
         );
     } catch (e) {
         console.warn(`[Instagram] jaroslavsemanko falló (${e.message}), intentando actor alternativo...`);
         rawComments = await runApifyActor(
             'apify~instagram-comment-scraper',
-            { directUrls: postUrls, resultsPerPost: 20 },
+            { directUrls: postUrls, resultsPerPost: 10 },
             apifyKey
         );
     }
@@ -301,10 +301,10 @@ registerRoute('post', '/api/scout', async (req, res) => {
             let input = {};
             if (platform === 'google-maps') {
                 actorId = 'compass~google-maps-reviews-scraper';
-                input = { queries: [url], maxReviews: 30 };
+                input = { queries: [url], maxReviews: 10 };
             } else if (platform === 'facebook') {
                 actorId = 'apify~facebook-comments-scraper';
-                input = { postUrls: [url], maxComments: 30 };
+                input = { postUrls: [url], maxComments: 10 };
             } else {
                 return res.status(400).json({ error: `Plataforma ${platform} no soportada para Scout.` });
             }
