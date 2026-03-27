@@ -92,12 +92,16 @@ export default function App() {
       // /api/scout ahora es síncrono — espera hasta recibir los resultados completos
       const res = await axios.post(`${API_BASE}/api/scout`, {
         url, platform,
-        brand: url.includes('bembos') ? 'Bembos'
-             : url.includes('popeyes') ? 'Popeyes'
-             : url.includes('papajohns') ? 'Papa Johns'
-             : url.includes('dunkin') ? 'Dunkin'
-             : url.includes('kfc') ? 'KFC'
-             : url.includes('starbucks') ? 'Starbucks'
+        brand: url.includes('bembos')      ? 'Bembos'
+             : url.includes('popeyes')     ? 'Popeyes'
+             : url.includes('papajohns')   ? 'Papa Johns'
+             : url.includes('chinawok')    ? 'China Wok'
+             : url.includes('dunkin')      ? 'Dunkin Donuts'
+             : url.includes('mcdonalds') || url.includes('mcdonald') ? "McDonald's"
+             : url.includes('burgerking') || url.includes('burger_king') ? 'Burger King'
+             : url.includes('kfc')         ? 'KFC'
+             : url.includes('pizzahut') || url.includes('pizza_hut') ? 'Pizza Hut'
+             : url.includes('starbucks')   ? 'Starbucks'
              : platform,
       }, { timeout: 280000 }); // 280 segundos (por debajo del timeout de Cloud Run de 300s)
 

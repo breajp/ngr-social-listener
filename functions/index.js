@@ -267,37 +267,64 @@ registerRoute('post', '/api/youtube/analyze', async (req, res) => {
 
 
 registerRoute('post', '/api/scout', async (req, res) => {
-    const { url, platform, brand } = req.body;
+    let { url, platform, brand } = req.body;
     if (!url) return res.status(400).json({ error: 'URL requerida' });
 
-    const actorConfig = {
-        tiktok:        { id: 'clockworks~tiktok-comments-scraper',       input: { postURLs: [url], commentsPerPost: 25, maxRepliesPerComment: 0 } },
-        instagram:     { id: 'jaroslavsemanko~instagram-comment-scraper', input: { directUrls: [url], resultsLimit: 25 } },
-        'google-maps': { id: 'compass~google-maps-reviews-scraper',       input: { queries: [url], maxReviews: 25 } },
-        facebook:      { id: 'apify~facebook-comments-scraper',           input: { postUrls: [url], maxComments: 25 } },
-    };
-    const config = actorConfig[platform];
-    if (!config) return res.status(400).json({ error: `Plataforma no soportada: ${platform}` });
-
     try {
-        console.log(`[ScoutBot] Scraping ${platform}: ${url}`);
+        const apifyKey = getApifyKey();
 
-        // PASO 1: Apify — espera a que el actor termine (runApifyActor es síncrono)
-        const rawItems = await runApifyActor(config.id, config.input, getApifyKey());
-        const comments = normalizeApifyItems(rawItems).map(c => ({ ...c, platform }));
+        // --- Normalización de @cuenta a URL completa ---
+        if (url.startsWith('@')) {
+            if (platform === 'tiktok')     url = `https://www.tiktok.com/${url}`;
+            else if (platform === 'instagram') url = `https://www.instagram.com/${url.replace('@', '')}/`;
+        }
+
+        console.log(`[ScoutBot] Analizando ${platform}: ${url} (Brand: ${brand})`);
+
+        let comments = [];
+        let videoMeta = [];
+
+        // TikTok e Instagram: flujo unificado en 2 pasos (extractor → comment scraper)
+        if (platform === 'tiktok' || platform === 'instagram') {
+            if (platform === 'tiktok') {
+                const result = await scrapeTikTokComments(url, apifyKey, 3);
+                comments = normalizeApifyItems(result.comments);
+                videoMeta = result.videoMeta;
+            } else {
+                const result = await scrapeInstagramComments(url, apifyKey, 3);
+                comments = normalizeApifyItems(result.comments);
+                videoMeta = result.videoMeta;
+            }
+        } else {
+            // Google Maps y Facebook
+            let actorId = '';
+            let input = {};
+            if (platform === 'google-maps') {
+                actorId = 'compass~google-maps-reviews-scraper';
+                input = { queries: [url], maxReviews: 30 };
+            } else if (platform === 'facebook') {
+                actorId = 'apify~facebook-comments-scraper';
+                input = { postUrls: [url], maxComments: 30 };
+            } else {
+                return res.status(400).json({ error: `Plataforma ${platform} no soportada para Scout.` });
+            }
+            const rawItems = await runApifyActor(actorId, input, apifyKey);
+            comments = normalizeApifyItems(rawItems);
+        }
 
         if (comments.length === 0) {
             return res.json({
                 status: 'done', comments: 0, comments_raw: [],
-                summary: 'No se encontraron comentarios para analizar.',
+                summary: 'No se encontraron comentarios para analizar en esta URL. Asegurate de que el perfil/post sea público.',
                 sentiment: { positive: 0, negative: 0, neutral: 100 }
             });
         }
+
         console.log(`[ScoutBot] ${comments.length} comentarios → Gemini`);
 
-        // PASO 2: Gemini
+        // PASO 2: Análisis Gemini
         const insights = await processor.analyzeSentimentAndTrends(
-            comments.slice(0, 30), brand || platform, platform
+            comments.slice(0, 40), brand || platform, platform
         );
 
         // Guardar en Firestore
@@ -311,10 +338,13 @@ registerRoute('post', '/api/scout', async (req, res) => {
             ...insights
         });
 
-        res.json({ status: 'done', comments: comments.length, comments_raw: comments, ...insights });
+        res.json({ status: 'done', comments: comments.length, comments_raw: comments, videoMeta, ...insights });
     } catch (error) {
         console.error('[ScoutBot Error]', error.message);
-        res.status(500).json({ error: error.message });
+        res.status(500).json({
+            error: error.message,
+            detail: 'Revisá que la URL o el nombre de usuario sean correctos.'
+        });
     }
 });
 

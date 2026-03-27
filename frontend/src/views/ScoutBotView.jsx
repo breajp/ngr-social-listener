@@ -5,14 +5,28 @@ import SentimentPill from '../components/SentimentPill';
 
 // ─── Lista maestra de cuentas NGR ─────────────────────────────────────────────
 const ALL_TARGETS = [
-  { key: 'Bembos:tiktok',         brand: 'Bembos',        platform: 'tiktok',    handle: '@bembos.oficial',      type: 'Owned',      url: 'https://www.tiktok.com/@bembos.oficial' },
-  { key: 'Papa Johns:tiktok',     brand: 'Papa Johns',    platform: 'tiktok',    handle: '@papajohnsperu',       type: 'Owned',      url: 'https://www.tiktok.com/@papajohnsperu' },
-  { key: 'Popeyes:tiktok',        brand: 'Popeyes',       platform: 'tiktok',    handle: '@popeyesperuoficial',  type: 'Owned',      url: 'https://www.tiktok.com/@popeyesperuoficial' },
-  { key: 'China Wok:tiktok',      brand: 'China Wok',     platform: 'tiktok',    handle: '@chinawokperu',        type: 'Owned',      url: 'https://www.tiktok.com/@chinawokperu' },
-  { key: 'Dunkin Donuts:instagram', brand: 'Dunkin Donuts', platform: 'instagram', handle: '@dunkindonutsperu',  type: 'Owned',      url: 'https://www.instagram.com/dunkindonutsperu/' },
-  { key: 'McDonalds:tiktok',      brand: 'McDonalds',     platform: 'tiktok',    handle: '@mcdonaldsperu',       type: 'Competitor', url: 'https://www.tiktok.com/@mcdonaldsperu' },
-  { key: 'Pizza Hut:instagram',   brand: 'Pizza Hut',     platform: 'instagram', handle: '@pizzahutperu',        type: 'Competitor', url: 'https://www.instagram.com/pizzahutperu/' },
-  { key: 'Starbucks:instagram',   brand: 'Starbucks',     platform: 'instagram', handle: '@starbucksperu',       type: 'Competitor', url: 'https://www.instagram.com/starbucksperu/' },
+  // ── Owned ───────────────────────────────────────────────────────────────────
+  { key: 'Bembos:tiktok',          brand: 'Bembos',        platform: 'tiktok',    handle: '@bembos.oficial',       type: 'Owned',      url: 'https://www.tiktok.com/@bembos.oficial' },
+  { key: 'Bembos:instagram',       brand: 'Bembos',        platform: 'instagram', handle: '@bembos',               type: 'Owned',      url: 'https://www.instagram.com/bembos/' },
+  { key: 'Papa Johns:tiktok',      brand: 'Papa Johns',    platform: 'tiktok',    handle: '@papajohnsperu',        type: 'Owned',      url: 'https://www.tiktok.com/@papajohnsperu' },
+  { key: 'Papa Johns:instagram',   brand: 'Papa Johns',    platform: 'instagram', handle: '@papajohnsperu',        type: 'Owned',      url: 'https://www.instagram.com/papajohnsperu/' },
+  { key: 'Popeyes:tiktok',         brand: 'Popeyes',       platform: 'tiktok',    handle: '@popeyesperuoficial',   type: 'Owned',      url: 'https://www.tiktok.com/@popeyesperuoficial' },
+  { key: 'Popeyes:instagram',      brand: 'Popeyes',       platform: 'instagram', handle: '@popeyesperu',          type: 'Owned',      url: 'https://www.instagram.com/popeyesperu/' },
+  { key: 'China Wok:tiktok',       brand: 'China Wok',     platform: 'tiktok',    handle: '@chinawokperu',         type: 'Owned',      url: 'https://www.tiktok.com/@chinawokperu' },
+  { key: 'China Wok:instagram',    brand: 'China Wok',     platform: 'instagram', handle: '@chinawokperu',         type: 'Owned',      url: 'https://www.instagram.com/chinawokperu/' },
+  { key: 'Dunkin Donuts:instagram',brand: 'Dunkin Donuts', platform: 'instagram', handle: '@dunkindonutsperu',     type: 'Owned',      url: 'https://www.instagram.com/dunkindonutsperu/' },
+  { key: 'Dunkin Donuts:tiktok',   brand: 'Dunkin Donuts', platform: 'tiktok',    handle: '@dunkindonutsperu',     type: 'Owned',      url: 'https://www.tiktok.com/@dunkindonutsperu' },
+  // ── Competitors ─────────────────────────────────────────────────────────────
+  { key: 'McDonalds:tiktok',       brand: "McDonald's",    platform: 'tiktok',    handle: '@mcdonaldsperu',        type: 'Competitor', url: 'https://www.tiktok.com/@mcdonaldsperu' },
+  { key: 'McDonalds:instagram',    brand: "McDonald's",    platform: 'instagram', handle: '@mcdonaldsperu',        type: 'Competitor', url: 'https://www.instagram.com/mcdonaldsperu/' },
+  { key: 'Burger King:tiktok',     brand: 'Burger King',   platform: 'tiktok',    handle: '@burgerkingperu',       type: 'Competitor', url: 'https://www.tiktok.com/@burgerkingperu' },
+  { key: 'Burger King:instagram',  brand: 'Burger King',   platform: 'instagram', handle: '@burgerkingperu',       type: 'Competitor', url: 'https://www.instagram.com/burgerkingperu/' },
+  { key: 'KFC:tiktok',             brand: 'KFC',           platform: 'tiktok',    handle: '@kfcperu',              type: 'Competitor', url: 'https://www.tiktok.com/@kfcperu' },
+  { key: 'KFC:instagram',          brand: 'KFC',           platform: 'instagram', handle: '@kfcperu',              type: 'Competitor', url: 'https://www.instagram.com/kfcperu/' },
+  { key: 'Pizza Hut:instagram',    brand: 'Pizza Hut',     platform: 'instagram', handle: '@pizzahutperu',         type: 'Competitor', url: 'https://www.instagram.com/pizzahutperu/' },
+  { key: 'Pizza Hut:tiktok',       brand: 'Pizza Hut',     platform: 'tiktok',    handle: '@pizzahutperu',         type: 'Competitor', url: 'https://www.tiktok.com/@pizzahutperu' },
+  { key: 'Starbucks:instagram',    brand: 'Starbucks',     platform: 'instagram', handle: '@starbucksperu',        type: 'Competitor', url: 'https://www.instagram.com/starbucksperu/' },
+  { key: 'Starbucks:tiktok',       brand: 'Starbucks',     platform: 'tiktok',    handle: '@starbucksperu',        type: 'Competitor', url: 'https://www.tiktok.com/@starbucksperu' },
 ];
 
 const PLATFORM_COLORS = {
