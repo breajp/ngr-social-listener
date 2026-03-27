@@ -17,5 +17,5 @@ frontend/dist
 # OS
 .DS_Store
 
-# Lock files root
-package-lock.json
+# Lock files root (only ignore the empty root one)
+/package-lock.json
