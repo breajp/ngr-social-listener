@@ -1063,6 +1063,7 @@ exports.apiServer = onRequest({
     maxInstances: 10,
     timeoutSeconds: 300,
     memory: '1GiB',
+    secrets: ['APIFY_API_KEY', 'GEMINI_API_KEY'],
 }, app);
 
 // Tareas Programadas - Daily Automation
