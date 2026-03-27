@@ -1,5 +1,5 @@
 # Auto-deploy to Firebase on push to main
-# Builds frontend + deploys Hosting + Functions
+# Builds frontend (Vite) + deploys Hosting + Cloud Functions
 
 name: 🚀 Deploy to Firebase on Push
 
@@ -36,7 +36,7 @@ jobs:
 
       - name: 📦 Install functions dependencies
         run: npm ci
-        working-directory: backend/functions
+        working-directory: functions
 
       - name: 🔥 Deploy to Firebase (Hosting + Functions)
         uses: FirebaseExtended/action-hosting-deploy@v0
